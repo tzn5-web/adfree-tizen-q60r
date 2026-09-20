@@ -78,7 +78,7 @@ echo "== Install permission =="
 
 echo
 echo "== Install signed WGT =="
-"$TIZEN" install -s "$SERIAL" --name "$(basename "$SIGNED_WGT")" -- "$SIGNED_WGT"
+"$TIZEN" install -s "$SERIAL" --name "$(basename "$SIGNED_WGT")" -- "$APP_DIR"
 
 echo
 echo "== Launch application =="
