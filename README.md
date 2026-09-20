@@ -32,3 +32,11 @@ Samsung Q60R
 The upstream project is GPL-3.0-only. This repository is a build/orchestration derivative and preserves upstream attribution and licensing.
 
 Upstream: https://github.com/SushyDev/tizen-youtube
+
+## Virtual validation
+
+A dedicated Samsung Tizen 5.0 TV Emulator path is documented in `docs/EMULATOR_TIZEN5.md`.
+
+Use TV Extension **5.0.1** and the Tizen 5.0 TV emulator. Samsung identifies the emulator platform as `tv-samsung-5.0-x86`; TV Extension 5.0.1 uses Chromium M63, matching the target software generation.
+
+After the emulator is running, `scripts/emulator-smoke.sh` installs and launches the Q60R WGT through the Samsung Tizen CLI. This is a platform-level validation layer between CI and the physical TV.
