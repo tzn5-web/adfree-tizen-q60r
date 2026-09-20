@@ -13,6 +13,8 @@ assert.match(xml, new RegExp(`package="${cfg.tizen.packageId}"`));
 assert.match(xml, new RegExp(`id="${cfg.tizen.applicationId.replace('.', '\\.')}`));
 assert.match(xml, new RegExp(`id="${cfg.tizen.serviceId.replace('.', '\\.')}`));
 assert.match(xml, new RegExp(`<name>${cfg.tizen.displayName}</name>`));
+assert.match(xml, new RegExp(`required_version="${cfg.tizen.requiredVersion}"`));
+assert.match(xml, new RegExp(`devel.api.version" value="${cfg.tizen.requiredVersion}"`));
 
 const runtime = read('framework/runtime/config.js');
 assert.match(runtime, /enableAdBlock:\s*true/);
