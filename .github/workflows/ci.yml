@@ -1,0 +1,97 @@
+name: Q60R build and regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: q60r-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout wrapper
+        uses: actions/checkout@v4
+
+      - name: Prepare pinned upstream
+        run: bash ./scripts/prepare-upstream.sh
+
+      - name: Apply Q60R overlay
+        run: node scripts/apply-q60r.mjs .upstream
+
+      - name: Install upstream dependencies
+        working-directory: .upstream
+        run: npm ci
+
+      - name: Doctor
+        working-directory: .upstream
+        run: npm run doctor
+
+      - name: Version consistency
+        working-directory: .upstream
+        run: npm run version:check
+
+      - name: Build
+        working-directory: .upstream
+        run: npm run build
+
+      - name: Upstream tests
+        working-directory: .upstream
+        run: npm test
+
+      - name: Package
+        working-directory: .upstream
+        run: npm run package
+
+      - name: Q60R regression
+        run: node tests/q60r-regression.mjs .upstream
+
+      - name: Publish widget
+        uses: actions/upload-artifact@v4
+        with:
+          name: adfree-tizen-q60r-tizen5
+          path: .upstream/tube-tizen-5.0.wgt
+          if-no-files-found: error
+          retention-days: 14
+
+  browser:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - name: Checkout wrapper
+        uses: actions/checkout@v4
+      - name: Prepare pinned upstream
+        run: bash ./scripts/prepare-upstream.sh
+      - name: Apply Q60R overlay
+        run: node scripts/apply-q60r.mjs .upstream
+      - name: Install
+        working-directory: .upstream
+        run: npm ci
+      - name: Build
+        working-directory: .upstream
+        run: npm run build
+      - name: Install Chromium
+        working-directory: .upstream
+        run: npx playwright install --with-deps chromium
+      - name: Real YouTube browser regression
+        working-directory: .upstream
+        run: npm run test:e2e
+
+  cobalt:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - name: Note
+        run: echo "Cobalt hardware-equivalent testing is intentionally non-blocking until the repository has a prepared Cobalt image."
