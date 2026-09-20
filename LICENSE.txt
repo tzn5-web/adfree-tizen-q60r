@@ -1,0 +1,5 @@
+This repository's build/orchestration source is distributed under the GNU General Public License v3.0.
+
+See https://www.gnu.org/licenses/gpl-3.0.html for the license text.
+
+The produced application is based on SushyDev/tizen-youtube, which is licensed GPL-3.0-only. See UPSTREAM.md for the exact pinned commit and provenance.
