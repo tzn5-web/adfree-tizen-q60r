@@ -11,6 +11,24 @@
 - upstream unit/service suite
 - browser regression suite against Chromium (non-blocking)
 
+## Samsung Tizen 5.0 TV Emulator
+
+- TV Extension 5.0.1 image selected
+- emulator platform `tv-samsung-5.0-x86`
+- WGT installation
+- first launch / cold boot
+- home/search/navigation
+- playback start
+- 1080p playback where supported by emulator
+- remote seek/rewind behavior
+- AdBlock initialization and ad surfaces
+- SponsorBlock initialization
+- suspend/resume and repeated launches
+- network loss/recovery
+- Web Inspector/runtime diagnostics
+
+The emulator layer is a platform-level preflight. It does not certify the real QE43Q60R media, DRM, 4K/HDR or firmware behavior.
+
 ## Physical TV
 
 The following cannot be proven in GitHub Actions and must be run on the QE43Q60RATXXH:
