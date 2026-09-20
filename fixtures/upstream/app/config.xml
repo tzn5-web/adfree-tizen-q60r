@@ -1,0 +1,5 @@
+<widget xmlns:tizen="http://tizen.org/ns/widgets" xmlns="http://www.w3.org/ns/widgets" id="https://tube.local" version="1.4.0" viewmodes="maximized">
+<tizen:application id="tUb3Xq7Lm9.Tube" package="tUb3Xq7Lm9" required_version="5.5"/>
+<name>YouTube</name>
+<tizen:service id="tUb3Xq7Lm9.TubeService" auto-restart="true" on-boot="true"><tizen:content src="service/dist/index.js"/></tizen:service>
+</widget>
