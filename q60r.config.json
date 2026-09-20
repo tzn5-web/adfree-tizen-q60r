@@ -1,0 +1,30 @@
+{
+  "target": {
+    "model": "QE43Q60RATXXH",
+    "platform": "Tizen 5.0",
+    "firmwareObserved": "T-MSMDEUC-1500.9"
+  },
+  "upstream": {
+    "repository": "https://github.com/SushyDev/tizen-youtube.git",
+    "commit": "9fb6ce97e6c430d55551aa47bfc924547d06909e",
+    "version": "1.4.0"
+  },
+  "tizen": {
+    "requiredVersion": "5.0",
+    "packageId": "Q60AdFree1",
+    "applicationId": "Q60AdFree1.Tube",
+    "serviceId": "Q60AdFree1.TubeService",
+    "displayName": "YouTube AdFree Q60R"
+  },
+  "featuresExpectedOn": [
+    "enableAdBlock",
+    "enableSponsorBlock"
+  ],
+  "featuresExpectedOff": [
+    "enableSponsorBlockToasts"
+  ],
+  "ports": {
+    "proxy": 8099,
+    "dev": 8097
+  }
+}
