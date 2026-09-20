@@ -65,6 +65,9 @@ jobs:
       - name: Verify widget
         run: test -s .upstream/release/tube-tizen-5.0.wgt
 
+      - name: Verify packaged WGT
+        run: node tests/wgt-regression.mjs .upstream/release/tube-tizen-5.0.wgt
+
       - name: Publish widget
         uses: actions/upload-artifact@v4
         with:
@@ -77,7 +80,6 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    continue-on-error: true
     steps:
       - name: Checkout wrapper
         uses: actions/checkout@v4
