@@ -51,7 +51,8 @@ Example:
 ```bash
 TIZEN_HOME=/path/to/tizen-studio \\
 WGT=/path/to/tube-tizen-5.0.wgt \\
-./scripts/emulator-smoke.sh
+CERT_PROFILE=myCert \\
+bash ./scripts/emulator-smoke.sh
 ```
 
 The default target is `emulator-26101` and the default application ID is `Q60AdFree1.Tube`. Both can be overridden with `SERIAL` and `APP_ID`.
@@ -85,6 +86,8 @@ The final acceptance gate remains the physical `QE43Q60RATXXH`.
 After launching the emulator, use the Q60R widget built by CI:
 
 `tube-tizen-5.0.wgt`
+
+The CI WGT is intentionally unsigned for the physical-TV/Homebrew workflow. Samsung's CLI requires a valid certificate profile for test packaging, so `scripts/emulator-smoke.sh` extracts the WGT, signs a temporary copy with `tizen package -t wgt -s <profile>`, installs that signed copy, and launches `Q60AdFree1.Tube`. Samsung documents that valid certificate profiles are required for CLI packaging/testing. citeturn292355view0turn292355search1
 
 Record at minimum:
 
