@@ -42,6 +42,20 @@ The target emulator platform referenced by Samsung examples is:
 
 Samsung also documents a virtual remote and bridged networking, which are useful for this project's navigation and YouTube/network tests.
 
+## CLI smoke test
+
+After starting the emulator, Samsung documents these Tizen CLI operations for a TV emulator: retrieve the target with SDB, grant installation permission, install the WGT, and run the application by application ID. The repository now provides `scripts/emulator-smoke.sh` to execute that sequence.
+
+Example:
+
+```bash
+TIZEN_HOME=/path/to/tizen-studio \\
+WGT=/path/to/tube-tizen-5.0.wgt \\
+./scripts/emulator-smoke.sh
+```
+
+The default target is `emulator-26101` and the default application ID is `Q60AdFree1.Tube`. Both can be overridden with `SERIAL` and `APP_ID`.
+
 ## What this can validate
 
 The emulator is suitable for high-value pre-hardware checks:
