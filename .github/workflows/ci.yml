@@ -62,11 +62,14 @@ jobs:
       - name: Q60R regression
         run: node tests/q60r-regression.mjs .upstream
 
+      - name: Verify widget
+        run: test -s .upstream/release/tube-tizen-5.0.wgt
+
       - name: Publish widget
         uses: actions/upload-artifact@v4
         with:
           name: adfree-tizen-q60r-tizen5
-          path: .upstream/tube-tizen-5.0.wgt
+          path: .upstream/release/tube-tizen-5.0.wgt
           if-no-files-found: error
           retention-days: 14
 
