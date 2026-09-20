@@ -17,7 +17,11 @@ npm run build
 npm test
 npm run package
 
-cp -f tube-tizen-5.0.wgt "$OUT_DIR/adfree-tizen-q60r-1.0.0-tizen5.0.wgt"
-sha256sum "$OUT_DIR/adfree-tizen-q60r-1.0.0-tizen5.0.wgt" > "$OUT_DIR/adfree-tizen-q60r-1.0.0-tizen5.0.wgt.sha256"
+SOURCE_WGT="$UPSTREAM_DIR/release/tube-tizen-5.0.wgt"
+DEST_WGT="$OUT_DIR/adfree-tizen-q60r-1.0.0-tizen5.0.wgt"
 
-node "$ROOT_DIR/scripts/q60r-smoke.mjs" "$UPSTREAM_DIR" "$OUT_DIR/adfree-tizen-q60r-1.0.0-tizen5.0.wgt"
+test -s "$SOURCE_WGT"
+cp -f "$SOURCE_WGT" "$DEST_WGT"
+sha256sum "$DEST_WGT" > "$DEST_WGT.sha256"
+
+node "$ROOT_DIR/scripts/q60r-smoke.mjs" "$UPSTREAM_DIR" "$DEST_WGT"
