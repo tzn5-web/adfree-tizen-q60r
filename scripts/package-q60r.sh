@@ -18,7 +18,7 @@ npm test
 npm run package
 
 SOURCE_WGT="$UPSTREAM_DIR/release/tube-tizen-5.0.wgt"
-VERSION=$(node -p "require('./.upstream/package.json').version")
+VERSION=$(node -p "require('./package.json').version")
 DEST_WGT="$OUT_DIR/adfree-tizen-q60r-${VERSION}-tizen5.0.wgt"
 
 test -s "$SOURCE_WGT"
