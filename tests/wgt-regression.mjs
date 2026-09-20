@@ -8,7 +8,8 @@ assert(fs.existsSync(widget), `WGT does not exist: ${widget}`);
 assert(fs.statSync(widget).size > 1024, 'WGT is unexpectedly small');
 
 const cfg = JSON.parse(fs.readFileSync('q60r.config.json', 'utf8'));
-const readEntry = (name) => execFileSync('unzip', ['-p', widget, name], { encoding: 'utf8' });
+const execZip = (args) => execFileSync('unzip', args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+const readEntry = (name) => execZip(['-p', widget, name]);
 const xml = readEntry('config.xml');
 const userScript = readEntry('service/dist/assets/userScript.js');
 const service = readEntry('service/dist/index.js');
@@ -21,7 +22,7 @@ for (const name of [
   'service/dist/assets/userScript.js',
   'service/dist/assets/bootScreen.js'
 ]) {
-  const listing = execFileSync('unzip', ['-l', widget], { encoding: 'utf8' });
+  const listing = execZip(['-l', widget]);
   assert.match(listing, new RegExp(name.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&')));
 }
 
@@ -52,7 +53,7 @@ assert(service.includes('Content-Security-Policy'), 'CSP handling missing from p
 assert(!service.includes('/__tube/dev/'), 'developer routes leaked into packaged service');
 assert(!service.includes('x-tube-token'), 'developer auth token leaked into packaged service');
 
-const signatureListing = execFileSync('unzip', ['-l', widget], { encoding: 'utf8' });
+const signatureListing = execZip(['-l', widget]);
 assert(!/author-signature\.xml|signature1\.xml/.test(signatureListing), 'unsigned Homebrew WGT unexpectedly contains signature files');
 
 console.log(`WGT regression checks passed: ${widget}`);
