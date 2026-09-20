@@ -40,7 +40,7 @@ assert(xml.includes('<tizen:service id="Q60AdFree1.TubeService" auto-restart="tr
 assert(!xml.includes('tUb3Xq7Lm9'), 'original package/application/service id leaked into WGT');
 assert(!xml.includes('tUb3Xq7L50'), 'legacy package id leaked into WGT metadata');
 assert(!xml.includes('required_version="5.5"'), 'legacy 5.5 required version leaked into WGT');
-assert(!xml.includes('devel.api.version\\" value=\\"5.5'), 'legacy 5.5 API metadata leaked into WGT');
+assert(!xml.includes('devel.api.version" value="5.5'), 'legacy 5.5 API metadata leaked into WGT');
 
 for (const token of ['adPlacements', 'adSlots', 'playerAds', 'isInlinePlaybackNoAd', 'SponsorBlock', '_yttv']) {
   assert(userScript.includes(token), `functional userscript token missing from packaged WGT: ${token}`);
