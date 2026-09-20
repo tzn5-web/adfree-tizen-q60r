@@ -12,6 +12,8 @@ const replaceRequired = (file, oldValue, newValue) => {
 
 const configXml = path.join(ROOT, 'app', 'config.xml');
 replaceRequired(configXml, 'tUb3Xq7Lm9', cfg.tizen.packageId);
+replaceRequired(configXml, 'required_version="5.5"', `required_version="${cfg.tizen.requiredVersion}"`);
+replaceRequired(configXml, 'key="http://samsung.com/tv/metadata/devel.api.version" value="5.5"', `key="http://samsung.com/tv/metadata/devel.api.version" value="${cfg.tizen.requiredVersion}"`);
 replaceRequired(configXml, '<name>YouTube</name>', `<name>${cfg.tizen.displayName}</name>`);
 replaceRequired(configXml, 'id="https://tube.local"', 'id="https://q60r-adfree.local"');
 
