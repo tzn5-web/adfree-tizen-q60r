@@ -21,6 +21,15 @@ jobs:
       - name: Checkout wrapper
         uses: actions/checkout@v4
 
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Fixture regression
+        run: node scripts/test-overlay-fixture.mjs
+
       - name: Prepare pinned upstream
         run: bash ./scripts/prepare-upstream.sh
 
@@ -70,6 +79,11 @@ jobs:
     steps:
       - name: Checkout wrapper
         uses: actions/checkout@v4
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
       - name: Prepare pinned upstream
         run: bash ./scripts/prepare-upstream.sh
       - name: Apply Q60R overlay
