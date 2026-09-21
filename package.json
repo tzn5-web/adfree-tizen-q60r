@@ -1,7 +1,7 @@
 {
   "name": "q60r-adfree",
   "appName": "yt.adfree",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Q60R-specific TizenBrew module using the verified TizenTube userscript with AdBlock and SponsorBlock enabled.",
   "packageType": "mods",
   "websiteURL": "https://youtube.com/tv",
