@@ -30,7 +30,7 @@ assert(xml.includes(`package="${cfg.tizen.packageId}"`));
 assert(xml.includes(`id="${cfg.tizen.applicationId}"`));
 assert(xml.includes(`id="${cfg.tizen.serviceId}"`));
 assert(xml.includes(`required_version="${cfg.tizen.requiredVersion}"`));
-assert(xml.includes(`devel.api.version\\" value=\\"${cfg.tizen.requiredVersion}`));
+assert(xml.includes(`devel.api.version" value="${cfg.tizen.requiredVersion}`));
 assert(xml.includes(`<name>${cfg.tizen.displayName}</name>`));
 assert(xml.includes('id="https://q60r-adfree.local"'));
 assert(xml.includes('nativeID" value="com.samsung.tv.cobalt-yt"'));
