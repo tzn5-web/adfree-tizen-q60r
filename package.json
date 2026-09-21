@@ -1,0 +1,13 @@
+{
+  "name": "q60r-adfree",
+  "appName": "YouTube AdFree Q60R",
+  "version": "1.0.0",
+  "description": "Q60R-specific TizenBrew module using the verified TizenTube userscript with AdBlock and SponsorBlock enabled.",
+  "packageType": "mods",
+  "websiteURL": "https://youtube.com/tv",
+  "main": "tizenbrew/main.js",
+  "keys": ["MediaPlayPause", "MediaPlay", "MediaPause", "MediaStop", "MediaFastForward", "MediaRewind", "MediaTrackNext", "MediaTrackPrevious"],
+  "evaluateScriptOnDocumentStart": false,
+  "license": "GPL-3.0-only",
+  "repository": { "url": "https://github.com/tzn5-web/adfree-tizen-q60r" }
+}
