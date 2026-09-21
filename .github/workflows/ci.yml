@@ -112,3 +112,36 @@ jobs:
     steps:
       - name: Note
         run: echo "Cobalt hardware-equivalent testing is intentionally non-blocking until the repository has a prepared Cobalt image."
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified WGT
+        uses: actions/download-artifact@v4
+        with:
+          name: adfree-tizen-q60r-tizen5
+          path: dist
+
+      - name: Publish GitHub release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: q60r-1.4.0-tizen5.0
+        run: |
+          set -euo pipefail
+          WGT="$(find dist -type f -name 'tube-tizen-5.0.wgt' -print -quit)"
+          test -n "$WGT"
+          sha256sum "$WGT"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$WGT" --clobber
+          else
+            gh release create "$TAG" "$WGT" \
+              --target "${GITHUB_SHA}" \
+              --title "Q60R AdFree 1.4.0 / Tizen 5.0" \
+              --notes "Verified Q60R build for Samsung Tizen 5.0. Built and tested by the repository CI before publication."
+          fi
