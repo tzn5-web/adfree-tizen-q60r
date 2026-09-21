@@ -5,7 +5,7 @@
   "description": "Q60R-specific TizenBrew module using the verified TizenTube userscript with AdBlock and SponsorBlock enabled.",
   "packageType": "mods",
   "websiteURL": "https://youtube.com/tv",
-  "main": "tizenbrew/main.js",
+  "main": "tizenbrew/main-1.0.1.js",
   "keys": ["MediaPlayPause", "MediaPlay", "MediaPause", "MediaStop", "MediaFastForward", "MediaRewind", "MediaTrackNext", "MediaTrackPrevious"],
   "evaluateScriptOnDocumentStart": false,
   "license": "GPL-3.0-only",
