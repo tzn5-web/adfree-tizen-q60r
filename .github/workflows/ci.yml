@@ -121,6 +121,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Download verified WGT
         uses: actions/download-artifact@v4
         with:
