@@ -1,5 +1,6 @@
 (() => {
-  const REMOTE = 'https://cdn.jsdelivr.net/npm/@foxreis/tizentube@1.15.0/dist/userScript.js';
+  const PROXY =
+    'http://127.0.0.1:8081/module/npm%2F%40foxreis%2Ftizentube/dist/userScript.js';
   const CONFIG_KEY = 'ytaf-configuration';
 
   try {
@@ -10,11 +11,13 @@
     window.localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
   } catch (_) {}
 
-  fetch(REMOTE, { cache: 'no-store' })
+  fetch(PROXY, { cache: 'no-store' })
     .then((response) => {
       if (!response.ok) throw new Error('TizenTube bundle HTTP ' + response.status);
       return response.text();
     })
     .then((source) => { (0, eval)(source); })
-    .catch((error) => { console.error('[Q60R AdFree] userscript load failed:', error); });
+    .catch((error) => {
+      console.error('[yt.adfree] userscript load failed:', error);
+    });
 })();
