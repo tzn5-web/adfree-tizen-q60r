@@ -32,23 +32,27 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mapfile -t REQUESTS < <(git diff-tree --root --no-commit-id --name-only -r "$GITHUB_SHA" | grep -E '^tb8504-build/requests/live/boot-[A-Za-z0-9._-]+[.]txt || true)
+          mapfile -t REQUESTS < <(
+            git diff-tree --root --no-commit-id --name-only -r "$GITHUB_SHA" |
+              grep -E '^tb8504-build/requests/live/boot-[A-Za-z0-9._-]+[.]txt$' || true
+          )
           if [ "${#REQUESTS[@]}" -ne 1 ]; then
-            echo "Expected exactly one boot request in triggering commit; found ${#REQUESTS[@]}" >&2
+            echo "Expected exactly one live boot request in triggering commit; found ${#REQUESTS[@]}" >&2
             for ITEM in "${REQUESTS[@]}"; do echo "$ITEM" >&2; done
             exit 2
           fi
+
           REQUEST="${REQUESTS[0]}"
-          if [ ! -f "$REQUEST" ]; then
-            echo "Boot request missing from checked out commit: $REQUEST" >&2
-            exit 2
-          fi
+          test -f "$REQUEST"
+
           if grep -Ev '^(SEED_RELEASE_TAG|SEED_ZIP_SHA256)=[A-Za-z0-9._:-]+$' "$REQUEST" | grep -q .; then
             echo "Invalid boot request syntax" >&2
             cat "$REQUEST" >&2
             exit 3
           fi
+
           source "$REQUEST"
+
           if [ -z "${SEED_RELEASE_TAG:-}" ]; then
             echo "Missing seed release tag" >&2
             exit 4
@@ -57,6 +61,7 @@ jobs:
             echo "Invalid seed SHA256" >&2
             exit 4
           fi
+
           echo "SEED_RELEASE_TAG=$SEED_RELEASE_TAG" >> "$GITHUB_ENV"
           echo "EXPECTED_SEED_ZIP_SHA256=$SEED_ZIP_SHA256" >> "$GITHUB_ENV"
           echo "BOOT_REQUEST=$REQUEST"
@@ -66,11 +71,11 @@ jobs:
         run: |
           set -o pipefail
           bash -n tb8504-build/scripts/repack-boot.sh
-          python3 -m py_compile tb8504-build/scripts/audit-cloud-seed.py
-          python3 -m py_compile tb8504-build/scripts/audit-kernel.py
-          python3 -m py_compile tb8504-build/scripts/extract-boot-seed.py
-          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' tb8504-build/scripts/repack-boot.sh tb8504-build/scripts/audit-cloud-seed.py tb8504-build/scripts/audit-kernel.py tb8504-build/scripts/extract-boot-seed.py
-          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' tb8504-build/scripts/repack-boot.sh tb8504-build/scripts/audit-cloud-seed.py tb8504-build/scripts/audit-kernel.py tb8504-build/scripts/extract-boot-seed.py
+          python3 -m py_compile             tb8504-build/scripts/audit-cloud-seed.py             tb8504-build/scripts/audit-kernel.py             tb8504-build/scripts/extract-boot-seed.py
+
+          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]'             tb8504-build/scripts/repack-boot.sh             tb8504-build/scripts/audit-cloud-seed.py             tb8504-build/scripts/audit-kernel.py             tb8504-build/scripts/extract-boot-seed.py
+
+          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/'             tb8504-build/scripts/repack-boot.sh             tb8504-build/scripts/audit-cloud-seed.py             tb8504-build/scripts/audit-kernel.py             tb8504-build/scripts/extract-boot-seed.py
 
       - name: Download private draft seed
         env:
@@ -79,69 +84,88 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p /tmp/tb8504-seed
-          gh release view "$SEED_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,tagName --jq '.isDraft, .tagName' | tee /tmp/tb8504-seed/release-info.txt
+
+          gh release view "$SEED_RELEASE_TAG"             --repo "$GITHUB_REPOSITORY"             --json isDraft,tagName             --jq '.isDraft, .tagName' |
+            tee /tmp/tb8504-seed/release-info.txt
+
           grep -Fx 'true' /tmp/tb8504-seed/release-info.txt
           grep -Fx "$SEED_RELEASE_TAG" /tmp/tb8504-seed/release-info.txt
-          gh release download "$SEED_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'TB8504_CLOUD_SEED_*.zip' --dir /tmp/tb8504-seed
-          mapfile -t SEEDS < <(find /tmp/tb8504-seed -maxdepth 1 -type f -name 'TB8504_CLOUD_SEED_*.zip' -print)
+
+          gh release download "$SEED_RELEASE_TAG"             --repo "$GITHUB_REPOSITORY"             --pattern 'TB8504_CLOUD_SEED_*.zip'             --dir /tmp/tb8504-seed
+
+          mapfile -t SEEDS < <(
+            find /tmp/tb8504-seed -maxdepth 1 -type f               -name 'TB8504_CLOUD_SEED_*.zip' -print
+          )
+
           if [ "${#SEEDS[@]}" -ne 1 ]; then
             echo "Expected exactly one cloud seed ZIP, found ${#SEEDS[@]}" >&2
             exit 5
           fi
+
           ACTUAL_SEED_SHA256="$(sha256sum "${SEEDS[0]}" | awk '{print $1}')"
           echo "ACTUAL_SEED_ZIP_SHA256=$ACTUAL_SEED_SHA256"
+
           if [ "$ACTUAL_SEED_SHA256" != "$EXPECTED_SEED_ZIP_SHA256" ]; then
             echo "Seed ZIP SHA256 mismatch" >&2
             exit 6
           fi
+
           echo "SEED_ZIP=${SEEDS[0]}" >> "$GITHUB_ENV"
 
       - name: Audit cloud seed
         shell: bash
         run: |
           set -o pipefail
-          python3 tb8504-build/scripts/audit-cloud-seed.py "$SEED_ZIP" 2>&1 | tee /tmp/tb8504-seed/seed-audit.txt
+
+          python3 tb8504-build/scripts/audit-cloud-seed.py "$SEED_ZIP"             2>&1 | tee /tmp/tb8504-seed/seed-audit.txt
           SEED_RC=${PIPESTATUS[0]}
-          if [ "$SEED_RC" -ne 0 ]; then
-            exit "$SEED_RC"
-          fi
+          [ "$SEED_RC" -eq 0 ] || exit "$SEED_RC"
+
           LOCAL_KERNEL_HEAD="$(grep '^LOCAL_KERNEL_HEAD=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           KERNEL_PATCH_BYTES="$(grep '^LOCAL_KERNEL_PATCH_BYTES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           KERNEL_MBOX_BYTES="$(grep '^LOCAL_KERNEL_MBOX_BYTES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           KERNEL_UNTRACKED="$(grep '^LOCAL_KERNEL_UNTRACKED_COUNT=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
-          echo "LOCAL_KERNEL_HEAD=$LOCAL_KERNEL_HEAD" >> "$GITHUB_ENV"
-          echo "KERNEL_PATCH_BYTES=$KERNEL_PATCH_BYTES" >> "$GITHUB_ENV"
-          echo "KERNEL_MBOX_BYTES=$KERNEL_MBOX_BYTES" >> "$GITHUB_ENV"
-          echo "KERNEL_UNTRACKED=$KERNEL_UNTRACKED" >> "$GITHUB_ENV"
           INSTALLED_MODULE_COUNT="$(grep '^INSTALLED_MODULE_COUNT=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           LOCAL_MODULE_SIGNING_CERT_SHA256="$(grep '^LOCAL_MODULE_SIGNING_CERT_SHA256=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           INSTALLED_MODULE_SIGNATURE_MISMATCHES="$(grep '^INSTALLED_MODULE_SIGNATURE_MISMATCHES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
-          echo "INSTALLED_MODULE_COUNT=$INSTALLED_MODULE_COUNT" >> "$GITHUB_ENV"
-          echo "LOCAL_MODULE_SIGNING_CERT_SHA256=$LOCAL_MODULE_SIGNING_CERT_SHA256" >> "$GITHUB_ENV"
-          echo "INSTALLED_MODULE_SIGNATURE_MISMATCHES=$INSTALLED_MODULE_SIGNATURE_MISMATCHES" >> "$GITHUB_ENV"
-          python3 tb8504-build/scripts/extract-boot-seed.py "$SEED_ZIP" /tmp/tb8504-seed/boot_seed.img
+
+          {
+            echo "LOCAL_KERNEL_HEAD=$LOCAL_KERNEL_HEAD"
+            echo "KERNEL_PATCH_BYTES=$KERNEL_PATCH_BYTES"
+            echo "KERNEL_MBOX_BYTES=$KERNEL_MBOX_BYTES"
+            echo "KERNEL_UNTRACKED=$KERNEL_UNTRACKED"
+            echo "INSTALLED_MODULE_COUNT=$INSTALLED_MODULE_COUNT"
+            echo "LOCAL_MODULE_SIGNING_CERT_SHA256=$LOCAL_MODULE_SIGNING_CERT_SHA256"
+            echo "INSTALLED_MODULE_SIGNATURE_MISMATCHES=$INSTALLED_MODULE_SIGNATURE_MISMATCHES"
+          } >> "$GITHUB_ENV"
+
+          python3 tb8504-build/scripts/extract-boot-seed.py             "$SEED_ZIP" /tmp/tb8504-seed/boot_seed.img
 
       - name: Require reconciled local kernel source
         shell: bash
         run: |
           set -o pipefail
           source tb8504-build/config/sources.env
+
           if [ "$LOCAL_KERNEL_HEAD" != "$KERNEL_SHA" ]; then
             echo "Local Android 16 kernel HEAD is not the cloud baseline." >&2
             echo "LOCAL=$LOCAL_KERNEL_HEAD CLOUD=$KERNEL_SHA" >&2
             exit 7
           fi
+
           for VALUE in "$KERNEL_PATCH_BYTES" "$KERNEL_MBOX_BYTES" "$KERNEL_UNTRACKED"; do
-            if ! [[ "$VALUE" =~ ^[0-9]+$ ]]; then
+            [[ "$VALUE" =~ ^[0-9]+$ ]] || {
               echo "Invalid kernel reconciliation metadata: $VALUE" >&2
               exit 8
-            fi
+            }
           done
-          if [ "$KERNEL_PATCH_BYTES" -ne 0 ] || [ "$KERNEL_MBOX_BYTES" -ne 0 ] || [ "$KERNEL_UNTRACKED" -ne 0 ]; then
+
+          if [ "$KERNEL_PATCH_BYTES" -ne 0 ] ||              [ "$KERNEL_MBOX_BYTES" -ne 0 ] ||              [ "$KERNEL_UNTRACKED" -ne 0 ]; then
             echo "Local kernel has unreconciled source state." >&2
             echo "patch=$KERNEL_PATCH_BYTES mbox=$KERNEL_MBOX_BYTES untracked=$KERNEL_UNTRACKED" >&2
             exit 9
           fi
+
           echo "LOCAL_KERNEL_RECONCILIATION=PASS"
 
       - name: Locate latest successful cloud kernel
@@ -151,11 +175,16 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tb8504-kernel.yml --branch tb8504-android16-build --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+
+          RUN_ID="$(
+            gh run list               --repo "$GITHUB_REPOSITORY"               --workflow tb8504-kernel.yml               --branch tb8504-android16-build               --status success               --limit 1               --json databaseId               --jq '.[0].databaseId'
+          )"
+
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
             echo "No successful TB8504 kernel workflow run found" >&2
             exit 10
           fi
+
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           echo "KERNEL_RUN_ID=$RUN_ID"
 
@@ -174,10 +203,13 @@ jobs:
         run: |
           set -o pipefail
           source tb8504-build/config/sources.env
+
           test -s /tmp/tb8504-kernel/Image.gz-dtb
           test -s /tmp/tb8504-kernel/kernel.config
+          test -s /tmp/tb8504-kernel/module-signing.x509
           test -s /tmp/tb8504-kernel/report/STATUS.txt
           test -s /tmp/tb8504-kernel/report/SUMMARY.txt
+
           grep -Fx 'FINAL_RC=0' /tmp/tb8504-kernel/report/STATUS.txt
           grep -Fx 'FLASH_PERFORMED=NO' /tmp/tb8504-kernel/report/SUMMARY.txt
           grep -Fx "KERNEL_SHA=$KERNEL_SHA" /tmp/tb8504-kernel/report/SUMMARY.txt
@@ -185,27 +217,30 @@ jobs:
           grep -Fx "DEFCONFIG=$DEFCONFIG" /tmp/tb8504-kernel/report/SUMMARY.txt
           grep -Fx "MODULE_COUNT=$EXPECTED_MODULE_COUNT" /tmp/tb8504-kernel/report/SUMMARY.txt
           grep -Fx 'KERNEL_AUDIT_RC=0' /tmp/tb8504-kernel/report/SUMMARY.txt
-          python3 tb8504-build/scripts/audit-kernel.py /tmp/tb8504-kernel 2>&1 | tee /tmp/tb8504-kernel/independent-audit.txt
+
+          python3 tb8504-build/scripts/audit-kernel.py /tmp/tb8504-kernel             2>&1 | tee /tmp/tb8504-kernel/independent-audit.txt
 
       - name: Enforce kernel-module signing coherence
         shell: bash
         run: |
           set -o pipefail
+
           for VALUE in "$INSTALLED_MODULE_COUNT" "$INSTALLED_MODULE_SIGNATURE_MISMATCHES"; do
-            if ! [[ "$VALUE" =~ ^[0-9]+$ ]]; then
+            [[ "$VALUE" =~ ^[0-9]+$ ]] || {
               echo "Invalid module-signing metadata: $VALUE" >&2
               exit 11
-            fi
+            }
           done
 
           if [ "$INSTALLED_MODULE_SIGNATURE_MISMATCHES" -ne 0 ]; then
-            echo "Local installed module set is not coherent with its exported signing certificate." >&2
+            echo "Installed Android 16 module set is not coherent with its local signing certificate." >&2
             exit 12
           fi
 
           if [ "$INSTALLED_MODULE_COUNT" -gt 0 ]; then
-            test -s /tmp/tb8504-kernel/module-signing.x509
-            CLOUD_MODULE_SIGNING_CERT_SHA256="$(sha256sum /tmp/tb8504-kernel/module-signing.x509 | awk '{print $1}')"
+            CLOUD_MODULE_SIGNING_CERT_SHA256="$(
+              sha256sum /tmp/tb8504-kernel/module-signing.x509 | awk '{print $1}'
+            )"
             echo "CLOUD_MODULE_SIGNING_CERT_SHA256=$CLOUD_MODULE_SIGNING_CERT_SHA256"
 
             if ! [[ "$LOCAL_MODULE_SIGNING_CERT_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
@@ -217,7 +252,6 @@ jobs:
               echo "Refusing unsafe boot repack: cloud kernel signing identity differs from installed Android 16 modules." >&2
               echo "LOCAL=$LOCAL_MODULE_SIGNING_CERT_SHA256" >&2
               echo "CLOUD=$CLOUD_MODULE_SIGNING_CERT_SHA256" >&2
-              echo "Next safe path: pair the cloud kernel with modules from the same cloud build, or preserve the local seed kernel." >&2
               exit 14
             fi
           fi
@@ -228,7 +262,7 @@ jobs:
         shell: bash
         run: |
           chmod +x tb8504-build/scripts/repack-boot.sh
-          tb8504-build/scripts/repack-boot.sh /tmp/tb8504-seed/boot_seed.img /tmp/tb8504-kernel/Image.gz-dtb tb8504-build/out/boot-repack
+          tb8504-build/scripts/repack-boot.sh             /tmp/tb8504-seed/boot_seed.img             /tmp/tb8504-kernel/Image.gz-dtb             tb8504-build/out/boot-repack
 
       - name: Publish boot audit summary
         if: always()
@@ -240,10 +274,11 @@ jobs:
             cat tb8504-build/out/boot-repack/artifact/report/SUMMARY.txt >> "$GITHUB_STEP_SUMMARY"
             echo '~~~' >> "$GITHUB_STEP_SUMMARY"
           fi
+
           if [ -f /tmp/tb8504-seed/seed-audit.txt ]; then
             echo '## Seed audit' >> "$GITHUB_STEP_SUMMARY"
             echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
-            tail -n 80 /tmp/tb8504-seed/seed-audit.txt >> "$GITHUB_STEP_SUMMARY"
+            tail -n 100 /tmp/tb8504-seed/seed-audit.txt >> "$GITHUB_STEP_SUMMARY"
             echo '~~~' >> "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -252,201 +287,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p tb8504-build/out/boot-report
-          if [ -f /tmp/tb8504-seed/seed-audit.txt ]; then cp /tmp/tb8504-seed/seed-audit.txt tb8504-build/out/boot-report/seed-audit.txt; fi
-          if [ -f /tmp/tb8504-kernel/independent-audit.txt ]; then cp /tmp/tb8504-kernel/independent-audit.txt tb8504-build/out/boot-report/independent-kernel-audit.txt; fi
-          if [ -f /tmp/tb8504-seed/release-info.txt ]; then cp /tmp/tb8504-seed/release-info.txt tb8504-build/out/boot-report/release-info.txt; fi
-
-      - name: Upload boot.img and audit
-        if: always()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
-        with:
-          name: TB8504-boot-audit-${{ github.run_number }}
-          path: |
-            tb8504-build/out/boot-repack/artifact/
-            tb8504-build/out/boot-report/
-          if-no-files-found: warn
-          retention-days: 14
-          compression-level: 6
- || true)
-          if [ "${#REQUESTS[@]}" -ne 1 ]; then
-            echo "Expected exactly one boot request in triggering commit; found ${#REQUESTS[@]}" >&2
-            for ITEM in "${REQUESTS[@]}"; do echo "$ITEM" >&2; done
-            exit 2
-          fi
-          REQUEST="${REQUESTS[0]}"
-          if [ ! -f "$REQUEST" ]; then
-            echo "Boot request missing from checked out commit: $REQUEST" >&2
-            exit 2
-          fi
-          if grep -Ev '^(SEED_RELEASE_TAG|SEED_ZIP_SHA256)=[A-Za-z0-9._:-]+$' "$REQUEST" | grep -q .; then
-            echo "Invalid boot request syntax" >&2
-            cat "$REQUEST" >&2
-            exit 3
-          fi
-          source "$REQUEST"
-          if [ -z "${SEED_RELEASE_TAG:-}" ]; then
-            echo "Missing seed release tag" >&2
-            exit 4
-          fi
-          if ! [[ "${SEED_ZIP_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "Invalid seed SHA256" >&2
-            exit 4
-          fi
-          echo "SEED_RELEASE_TAG=$SEED_RELEASE_TAG" >> "$GITHUB_ENV"
-          echo "EXPECTED_SEED_ZIP_SHA256=$SEED_ZIP_SHA256" >> "$GITHUB_ENV"
-          echo "BOOT_REQUEST=$REQUEST"
-
-      - name: Static safety audit
-        shell: bash
-        run: |
-          set -o pipefail
-          bash -n tb8504-build/scripts/repack-boot.sh
-          python3 -m py_compile tb8504-build/scripts/audit-cloud-seed.py
-          python3 -m py_compile tb8504-build/scripts/audit-kernel.py
-          python3 -m py_compile tb8504-build/scripts/extract-boot-seed.py
-          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' tb8504-build/scripts/repack-boot.sh tb8504-build/scripts/audit-cloud-seed.py tb8504-build/scripts/audit-kernel.py tb8504-build/scripts/extract-boot-seed.py
-          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' tb8504-build/scripts/repack-boot.sh tb8504-build/scripts/audit-cloud-seed.py tb8504-build/scripts/audit-kernel.py tb8504-build/scripts/extract-boot-seed.py
-
-      - name: Download private draft seed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p /tmp/tb8504-seed
-          gh release view "$SEED_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,tagName --jq '.isDraft, .tagName' | tee /tmp/tb8504-seed/release-info.txt
-          grep -Fx 'true' /tmp/tb8504-seed/release-info.txt
-          grep -Fx "$SEED_RELEASE_TAG" /tmp/tb8504-seed/release-info.txt
-          gh release download "$SEED_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'TB8504_CLOUD_SEED_*.zip' --dir /tmp/tb8504-seed
-          mapfile -t SEEDS < <(find /tmp/tb8504-seed -maxdepth 1 -type f -name 'TB8504_CLOUD_SEED_*.zip' -print)
-          if [ "${#SEEDS[@]}" -ne 1 ]; then
-            echo "Expected exactly one cloud seed ZIP, found ${#SEEDS[@]}" >&2
-            exit 5
-          fi
-          ACTUAL_SEED_SHA256="$(sha256sum "${SEEDS[0]}" | awk '{print $1}')"
-          echo "ACTUAL_SEED_ZIP_SHA256=$ACTUAL_SEED_SHA256"
-          if [ "$ACTUAL_SEED_SHA256" != "$EXPECTED_SEED_ZIP_SHA256" ]; then
-            echo "Seed ZIP SHA256 mismatch" >&2
-            exit 6
-          fi
-          echo "SEED_ZIP=${SEEDS[0]}" >> "$GITHUB_ENV"
-
-      - name: Audit cloud seed
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 tb8504-build/scripts/audit-cloud-seed.py "$SEED_ZIP" 2>&1 | tee /tmp/tb8504-seed/seed-audit.txt
-          SEED_RC=${PIPESTATUS[0]}
-          if [ "$SEED_RC" -ne 0 ]; then
-            exit "$SEED_RC"
-          fi
-          LOCAL_KERNEL_HEAD="$(grep '^LOCAL_KERNEL_HEAD=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
-          KERNEL_PATCH_BYTES="$(grep '^LOCAL_KERNEL_PATCH_BYTES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
-          KERNEL_MBOX_BYTES="$(grep '^LOCAL_KERNEL_MBOX_BYTES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
-          KERNEL_UNTRACKED="$(grep '^LOCAL_KERNEL_UNTRACKED_COUNT=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
-          echo "LOCAL_KERNEL_HEAD=$LOCAL_KERNEL_HEAD" >> "$GITHUB_ENV"
-          echo "KERNEL_PATCH_BYTES=$KERNEL_PATCH_BYTES" >> "$GITHUB_ENV"
-          echo "KERNEL_MBOX_BYTES=$KERNEL_MBOX_BYTES" >> "$GITHUB_ENV"
-          echo "KERNEL_UNTRACKED=$KERNEL_UNTRACKED" >> "$GITHUB_ENV"
-          python3 tb8504-build/scripts/extract-boot-seed.py "$SEED_ZIP" /tmp/tb8504-seed/boot_seed.img
-
-      - name: Require reconciled local kernel source
-        shell: bash
-        run: |
-          set -o pipefail
-          source tb8504-build/config/sources.env
-          if [ "$LOCAL_KERNEL_HEAD" != "$KERNEL_SHA" ]; then
-            echo "Local Android 16 kernel HEAD is not the cloud baseline." >&2
-            echo "LOCAL=$LOCAL_KERNEL_HEAD CLOUD=$KERNEL_SHA" >&2
-            exit 7
-          fi
-          for VALUE in "$KERNEL_PATCH_BYTES" "$KERNEL_MBOX_BYTES" "$KERNEL_UNTRACKED"; do
-            if ! [[ "$VALUE" =~ ^[0-9]+$ ]]; then
-              echo "Invalid kernel reconciliation metadata: $VALUE" >&2
-              exit 8
-            fi
-          done
-          if [ "$KERNEL_PATCH_BYTES" -ne 0 ] || [ "$KERNEL_MBOX_BYTES" -ne 0 ] || [ "$KERNEL_UNTRACKED" -ne 0 ]; then
-            echo "Local kernel has unreconciled source state." >&2
-            echo "patch=$KERNEL_PATCH_BYTES mbox=$KERNEL_MBOX_BYTES untracked=$KERNEL_UNTRACKED" >&2
-            exit 9
-          fi
-          echo "LOCAL_KERNEL_RECONCILIATION=PASS"
-
-      - name: Locate latest successful cloud kernel
-        id: kernel
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -o pipefail
-          RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tb8504-kernel.yml --branch tb8504-android16-build --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
-          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "No successful TB8504 kernel workflow run found" >&2
-            exit 10
-          fi
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "KERNEL_RUN_ID=$RUN_ID"
-
-      - name: Download audited kernel artifact
-        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          pattern: TB8504-kernel-audit-*
-          path: /tmp/tb8504-kernel
-          merge-multiple: true
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.kernel.outputs.run_id }}
-
-      - name: Independently verify cloud kernel baseline
-        shell: bash
-        run: |
-          set -o pipefail
-          source tb8504-build/config/sources.env
-          test -s /tmp/tb8504-kernel/Image.gz-dtb
-          test -s /tmp/tb8504-kernel/kernel.config
-          test -s /tmp/tb8504-kernel/report/STATUS.txt
-          test -s /tmp/tb8504-kernel/report/SUMMARY.txt
-          grep -Fx 'FINAL_RC=0' /tmp/tb8504-kernel/report/STATUS.txt
-          grep -Fx 'FLASH_PERFORMED=NO' /tmp/tb8504-kernel/report/SUMMARY.txt
-          grep -Fx "KERNEL_SHA=$KERNEL_SHA" /tmp/tb8504-kernel/report/SUMMARY.txt
-          grep -Fx "TOOLCHAIN_SHA=$TOOLCHAIN_SHA" /tmp/tb8504-kernel/report/SUMMARY.txt
-          grep -Fx "DEFCONFIG=$DEFCONFIG" /tmp/tb8504-kernel/report/SUMMARY.txt
-          grep -Fx "MODULE_COUNT=$EXPECTED_MODULE_COUNT" /tmp/tb8504-kernel/report/SUMMARY.txt
-          grep -Fx 'KERNEL_AUDIT_RC=0' /tmp/tb8504-kernel/report/SUMMARY.txt
-          python3 tb8504-build/scripts/audit-kernel.py /tmp/tb8504-kernel 2>&1 | tee /tmp/tb8504-kernel/independent-audit.txt
-
-      - name: Repack Android 16 boot image
-        shell: bash
-        run: |
-          chmod +x tb8504-build/scripts/repack-boot.sh
-          tb8504-build/scripts/repack-boot.sh /tmp/tb8504-seed/boot_seed.img /tmp/tb8504-kernel/Image.gz-dtb tb8504-build/out/boot-repack
-
-      - name: Publish boot audit summary
-        if: always()
-        shell: bash
-        run: |
-          if [ -f tb8504-build/out/boot-repack/artifact/report/SUMMARY.txt ]; then
-            echo '## TB8504 boot.img audit' >> "$GITHUB_STEP_SUMMARY"
-            echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
-            cat tb8504-build/out/boot-repack/artifact/report/SUMMARY.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
-          fi
-          if [ -f /tmp/tb8504-seed/seed-audit.txt ]; then
-            echo '## Seed audit' >> "$GITHUB_STEP_SUMMARY"
-            echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
-            tail -n 80 /tmp/tb8504-seed/seed-audit.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Collect temporary audit reports
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p tb8504-build/out/boot-report
-          if [ -f /tmp/tb8504-seed/seed-audit.txt ]; then cp /tmp/tb8504-seed/seed-audit.txt tb8504-build/out/boot-report/seed-audit.txt; fi
-          if [ -f /tmp/tb8504-kernel/independent-audit.txt ]; then cp /tmp/tb8504-kernel/independent-audit.txt tb8504-build/out/boot-report/independent-kernel-audit.txt; fi
-          if [ -f /tmp/tb8504-seed/release-info.txt ]; then cp /tmp/tb8504-seed/release-info.txt tb8504-build/out/boot-report/release-info.txt; fi
+          [ ! -f /tmp/tb8504-seed/seed-audit.txt ] ||             cp /tmp/tb8504-seed/seed-audit.txt tb8504-build/out/boot-report/seed-audit.txt
+          [ ! -f /tmp/tb8504-kernel/independent-audit.txt ] ||             cp /tmp/tb8504-kernel/independent-audit.txt tb8504-build/out/boot-report/independent-kernel-audit.txt
+          [ ! -f /tmp/tb8504-seed/release-info.txt ] ||             cp /tmp/tb8504-seed/release-info.txt tb8504-build/out/boot-report/release-info.txt
 
       - name: Upload boot.img and audit
         if: always()
