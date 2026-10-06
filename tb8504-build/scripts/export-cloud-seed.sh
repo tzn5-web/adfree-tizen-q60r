@@ -13,7 +13,7 @@ UPLOAD_DRAFT="${TB8504_UPLOAD_DRAFT:-0}"
 GITHUB_REPO="${TB8504_GITHUB_REPO:-tzn5-web/adfree-tizen-q60r}"
 GITHUB_TARGET="${TB8504_GITHUB_TARGET:-tb8504-android16-build}"
 
-mkdir -p "$OUT/patches" "$OUT/commits" "$OUT/untracked" "$OUT/meta" "$OUT/seeds"
+mkdir -p "$OUT/patches" "$OUT/commits" "$OUT/untracked" "$OUT/meta" "$OUT/seeds" "$OUT/installed-modules"
 RC=0
 
 log() { printf '%s\n' "$*"; }
@@ -200,6 +200,59 @@ fi
 
 PRODUCT_OUT="$ROOT/out/target/product/TB8504"
 
+# Preserve the exact installed kernel-module state from the Android 16 product.
+# This is required because CONFIG_MODULE_SIG_FORCE=y: a cloud kernel built with
+# a different X.509 key must never be paired blindly with locally signed modules.
+KOBJ="$PRODUCT_OUT/obj/KERNEL_OBJ"
+: > "$OUT/meta/INSTALLED_MODULES.txt"
+
+MODULE_COUNT=0
+for MODROOT in \
+    "$PRODUCT_OUT/system" \
+    "$PRODUCT_OUT/vendor" \
+    "$PRODUCT_OUT/product" \
+    "$PRODUCT_OUT/system_ext" \
+    "$PRODUCT_OUT/root" \
+    "$PRODUCT_OUT/recovery/root"
+do
+    [ -d "$MODROOT" ] || continue
+
+    while IFS= read -r -d '' MOD; do
+        REL="${MOD#$PRODUCT_OUT/}"
+        DST="$OUT/installed-modules/$REL"
+        mkdir -p "$(dirname "$DST")"
+        cp -f "$MOD" "$DST"
+
+        SIZE="$(stat -c '%s' "$MOD" 2>/dev/null)"
+        SHA="$(sha256sum "$MOD" | awk '{print $1}')"
+        printf '%s\t%s\t%s\n' "$REL" "$SIZE" "$SHA" >> "$OUT/meta/INSTALLED_MODULES.txt"
+        MODULE_COUNT=$((MODULE_COUNT + 1))
+    done < <(find "$MODROOT" -type f -name '*.ko' -print0 2>/dev/null)
+done
+
+sort -u -o "$OUT/meta/INSTALLED_MODULES.txt" "$OUT/meta/INSTALLED_MODULES.txt"
+MODULE_COUNT="$(wc -l < "$OUT/meta/INSTALLED_MODULES.txt")"
+echo "INSTALLED_MODULE_COUNT=$MODULE_COUNT" > "$OUT/meta/MODULE_SIGNING.txt"
+
+if [ -f "$KOBJ/.config" ]; then
+    cp -f "$KOBJ/.config" "$OUT/meta/local_kernel.config"
+fi
+
+if [ -f "$KOBJ/signing_key.x509" ]; then
+    cp -f "$KOBJ/signing_key.x509" "$OUT/meta/local_module_signing.x509"
+    echo "LOCAL_MODULE_SIGNING_CERT=present" >> "$OUT/meta/MODULE_SIGNING.txt"
+else
+    echo "LOCAL_MODULE_SIGNING_CERT=missing" >> "$OUT/meta/MODULE_SIGNING.txt"
+    if [ "$MODULE_COUNT" -gt 0 ]; then
+        warn "installed modules found but local public module-signing certificate is missing"
+    fi
+fi
+
+# Never export the private signing key.
+if [ -e "$KOBJ/signing_key.priv" ]; then
+    echo "LOCAL_PRIVATE_SIGNING_KEY_EXPORTED=NO" >> "$OUT/meta/MODULE_SIGNING.txt"
+fi
+
 if [ -f "$PRODUCT_OUT/boot.img" ]; then
     cp -f "$PRODUCT_OUT/boot.img" "$OUT/seeds/boot_seed.img"
     echo "BOOT_SEED=present" > "$OUT/meta/SEEDS.txt"
@@ -305,7 +358,7 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
             fail "draft release upload failed rc=$GH_RC"
         else
             SEED_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
-            REQUEST_PATH="tb8504-build/requests/boot-$STAMP.txt"
+            REQUEST_PATH="tb8504-build/requests/live/boot-$STAMP.txt"
             REQUEST_BODY="$(printf 'SEED_RELEASE_TAG=%s\nSEED_ZIP_SHA256=%s\n' "$DRAFT_RELEASE_TAG" "$SEED_SHA256")"
             REQUEST_B64="$(printf '%s' "$REQUEST_BODY" | base64 -w0)"
 
