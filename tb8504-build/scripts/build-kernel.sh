@@ -164,9 +164,23 @@ if [ "$MODULE_COUNT" -ne "$EXPECTED_MODULE_COUNT" ]; then
     exit $?
 fi
 
+SIGNING_CERT="$KERNEL_OUT/signing_key.x509"
+if [ ! -s "$SIGNING_CERT" ]; then
+    fail 36 "public module-signing certificate missing from kernel build"
+    exit $?
+fi
+
+if [ -e "$KERNEL_OUT/signing_key.priv" ]; then
+    echo "PRIVATE_SIGNING_KEY_PRESENT_IN_WORKSPACE=YES"
+else
+    fail 37 "kernel build did not retain expected private signing key in private workspace"
+    exit $?
+fi
+
 cp -f "$IMAGE" "$ARTIFACT_DIR/Image.gz-dtb"
 cp -f "$DTB" "$ARTIFACT_DIR/$EXPECTED_DTB"
 cp -f "$CONFIG" "$ARTIFACT_DIR/kernel.config"
+cp -f "$SIGNING_CERT" "$ARTIFACT_DIR/module-signing.x509"
 mkdir -p "$ARTIFACT_DIR/modules"
 find "$MODULES_OUT" -type f -name '*.ko' -exec cp -f {} "$ARTIFACT_DIR/modules/" \;
 
@@ -190,6 +204,8 @@ fi
     echo "DTB=$EXPECTED_DTB"
     echo "DTB_SIZE=$DTB_SIZE"
     echo "MODULE_COUNT=$MODULE_COUNT"
+    echo "MODULE_SIGNING_CERT_SHA256=$(sha256sum "$ARTIFACT_DIR/module-signing.x509" | awk '{print $1}')"
+    echo "PRIVATE_SIGNING_KEY_EXPORTED=NO"
     echo "BOOT_PARTITION_SIZE=$BOOT_PARTITION_SIZE"
     echo "FLASH_PERFORMED=NO"
     echo "KERNEL_AUDIT_RC=0"
