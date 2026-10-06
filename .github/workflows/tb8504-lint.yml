@@ -1,0 +1,84 @@
+name: TB8504 cloud lane lint
+
+on:
+  push:
+    branches:
+      - tb8504-android16-build
+    paths:
+      - "tb8504-build/**"
+      - ".github/workflows/tb8504-*.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tb8504-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Validate TB8504 cloud scripts
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout exact triggering commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      - name: Shell syntax
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t SHELL_FILES < <(find tb8504-build/scripts -maxdepth 1 -type f -name '*.sh' -print | sort)
+          if [ "${#SHELL_FILES[@]}" -lt 3 ]; then
+            echo "Unexpectedly few shell scripts: ${#SHELL_FILES[@]}" >&2
+            exit 2
+          fi
+          for FILE in "${SHELL_FILES[@]}"; do
+            echo "BASH_N=$FILE"
+            bash -n "$FILE"
+          done
+
+      - name: Python syntax
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t PY_FILES < <(find tb8504-build/scripts -maxdepth 1 -type f -name '*.py' -print | sort)
+          if [ "${#PY_FILES[@]}" -lt 3 ]; then
+            echo "Unexpectedly few Python scripts: ${#PY_FILES[@]}" >&2
+            exit 3
+          fi
+          python3 -m py_compile "${PY_FILES[@]}"
+
+      - name: Repository consistency
+        shell: bash
+        run: |
+          set -o pipefail
+          git diff --check HEAD^ HEAD
+          test -f tb8504-build/config/sources.env
+          test -f tb8504-build/config/boot-tools.env
+          grep -Fx 'BOOT_PARTITION_SIZE=67108864' tb8504-build/config/sources.env
+          grep -Fx 'RECOVERY_PARTITION_SIZE=67108864' tb8504-build/config/sources.env
+          grep -Fx 'SYSTEM_PARTITION_SIZE=4080218112' tb8504-build/config/sources.env
+          grep -Fx 'BOOT_PARTITION_SIZE=67108864' tb8504-build/config/boot-tools.env
+          grep -Fx 'EXPECTED_MODULE_COUNT=12' tb8504-build/config/sources.env
+
+      - name: Safety policy
+        shell: bash
+        run: |
+          set -o pipefail
+          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' tb8504-build/scripts
+          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' tb8504-build/scripts
+          ! git ls-files 'tb8504-build/seeds/*' | grep -q .
+          ! git ls-files 'tb8504-build/out/*' | grep -q .
+          ! find tb8504-build -type f -not -path '*/requests/*' -not -path '*/README.md' -not -path '*/CLOUD_SEED.md' -print0 | xargs -0 grep -IlE 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}' | grep -q .
+
+      - name: Cloud lane summary
+        shell: bash
+        run: |
+          echo 'TB8504_LINT=PASS' >> "$GITHUB_STEP_SUMMARY"
+          echo "COMMIT=$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo 'NO_FLASH=YES' >> "$GITHUB_STEP_SUMMARY"
