@@ -23,9 +23,10 @@ jobs:
 
     steps:
       - name: Checkout exact request commit
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 2
 
       - name: Read triggering boot request
         shell: bash
@@ -153,7 +154,7 @@ jobs:
           echo "KERNEL_RUN_ID=$RUN_ID"
 
       - name: Download audited kernel artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           pattern: TB8504-kernel-audit-*
           path: /tmp/tb8504-kernel
@@ -203,15 +204,23 @@ jobs:
             echo '~~~' >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Collect temporary audit reports
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p tb8504-build/out/boot-report
+          if [ -f /tmp/tb8504-seed/seed-audit.txt ]; then cp /tmp/tb8504-seed/seed-audit.txt tb8504-build/out/boot-report/seed-audit.txt; fi
+          if [ -f /tmp/tb8504-kernel/independent-audit.txt ]; then cp /tmp/tb8504-kernel/independent-audit.txt tb8504-build/out/boot-report/independent-kernel-audit.txt; fi
+          if [ -f /tmp/tb8504-seed/release-info.txt ]; then cp /tmp/tb8504-seed/release-info.txt tb8504-build/out/boot-report/release-info.txt; fi
+
       - name: Upload boot.img and audit
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
           name: TB8504-boot-audit-${{ github.run_number }}
           path: |
             tb8504-build/out/boot-repack/artifact/
-            /tmp/tb8504-seed/seed-audit.txt
-            /tmp/tb8504-kernel/independent-audit.txt
+            tb8504-build/out/boot-report/
           if-no-files-found: warn
           retention-days: 14
           compression-level: 6
