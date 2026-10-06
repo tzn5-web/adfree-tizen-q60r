@@ -89,17 +89,19 @@ if [ -x "$REPO_BIN" ]; then
     while IFS= read -r REL; do
         [ -n "$REL" ] || continue
         DIR="$ROOT/$REL"
-        [ -d "$DIR/.git" ] || continue
+        git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || continue
 
         DIRTY="$(git -C "$DIR" status --porcelain --untracked-files=all 2>/dev/null)"
-        LOCAL_ONLY="$(git -C "$DIR" rev-list --count HEAD --not --remotes=origin 2>/dev/null)"
-
-        if [ -n "$DIRTY" ] || { [[ "$LOCAL_ONLY" =~ ^[0-9]+$ ]] && [ "$LOCAL_ONLY" -gt 0 ]; }; then
+        if [ -n "$DIRTY" ]; then
             add_repo "$REL"
         fi
     done < <(cd "$ROOT" && "$REPO_BIN" list -p 2>/dev/null)
 else
     warn "repo launcher unavailable; using curated repo list"
+fi
+
+if [ -x "$REPO_BIN" ]; then
+    (cd "$ROOT" && "$REPO_BIN" status) > "$OUT/meta/REPO_STATUS_FULL.txt" 2>&1 || true
 fi
 
 printf '%s\n' "${REPOS[@]}" | sort -u > "$OUT/meta/EXPORTED_REPOS.txt"
