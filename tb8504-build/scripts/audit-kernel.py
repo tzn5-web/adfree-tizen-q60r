@@ -130,7 +130,6 @@ def cert_subject_key_id(cert: Path) -> str:
         raise ValueError("subjectKeyIdentifier not found in signing certificate")
 
     return "".join(x.lower() for x in hex_pairs)
-gned_end]
 
 
 def main() -> int:
