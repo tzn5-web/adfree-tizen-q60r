@@ -1,0 +1,105 @@
+name: TB8504 cloud kernel build
+
+on:
+  push:
+    branches:
+      - tb8504-android16-build
+    paths:
+      - "tb8504-build/**"
+      - ".github/workflows/tb8504-kernel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tb8504-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  kernel:
+    name: Build and audit TB8504 kernel
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout cloud build lane
+        uses: actions/checkout@v4
+        with:
+          ref: tb8504-android16-build
+
+      - name: Install host dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            build-essential \
+            ca-certificates \
+            cpio \
+            flex \
+            git \
+            libelf-dev \
+            libssl-dev \
+            lld \
+            python-is-python3 \
+            rsync \
+            xz-utils
+          df -h
+
+      - name: Static safety audit
+        shell: bash
+        run: |
+          set -o pipefail
+          test -f tb8504-build/config/sources.env
+          test -f tb8504-build/scripts/build-kernel.sh
+          test -f tb8504-build/scripts/audit-kernel.py
+
+          python3 -m py_compile tb8504-build/scripts/audit-kernel.py
+          bash -n tb8504-build/scripts/build-kernel.sh
+
+          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' tb8504-build/scripts
+          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' tb8504-build/scripts
+
+          grep -Fx 'BOOT_PARTITION_SIZE=67108864' tb8504-build/config/sources.env
+          grep -Fx 'RECOVERY_PARTITION_SIZE=67108864' tb8504-build/config/sources.env
+          grep -Fx 'SYSTEM_PARTITION_SIZE=4080218112' tb8504-build/config/sources.env
+
+      - name: Build kernel DTB and modules
+        shell: bash
+        run: |
+          chmod +x tb8504-build/scripts/build-kernel.sh
+          JOBS=2 tb8504-build/scripts/build-kernel.sh
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f tb8504-build/out/artifact/report/SUMMARY.txt ]; then
+            {
+              echo '## TB8504 kernel summary'
+              echo '~~~text'
+              cat tb8504-build/out/artifact/report/SUMMARY.txt
+              echo '~~~'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f tb8504-build/out/artifact/report/STATUS.txt ]; then
+            {
+              echo '## Status'
+              echo '~~~text'
+              cat tb8504-build/out/artifact/report/STATUS.txt
+              echo '~~~'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload audit and kernel artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TB8504-kernel-audit-${{ github.run_number }}
+          path: tb8504-build/out/artifact/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
