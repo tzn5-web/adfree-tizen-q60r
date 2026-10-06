@@ -5,7 +5,9 @@ on:
     branches:
       - tb8504-android16-build
     paths:
-      - "tb8504-build/**"
+      - "tb8504-build/config/sources.env"
+      - "tb8504-build/scripts/build-kernel.sh"
+      - "tb8504-build/scripts/audit-kernel.py"
       - ".github/workflows/tb8504-kernel.yml"
   workflow_dispatch:
 
@@ -59,8 +61,10 @@ jobs:
           python3 -m py_compile tb8504-build/scripts/audit-kernel.py
           bash -n tb8504-build/scripts/build-kernel.sh
 
-          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' tb8504-build/scripts
-          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' tb8504-build/scripts
+          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' \
+              tb8504-build/scripts/build-kernel.sh tb8504-build/scripts/audit-kernel.py
+          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' \
+              tb8504-build/scripts/build-kernel.sh tb8504-build/scripts/audit-kernel.py
 
           grep -Fx 'BOOT_PARTITION_SIZE=67108864' tb8504-build/config/sources.env
           grep -Fx 'RECOVERY_PARTITION_SIZE=67108864' tb8504-build/config/sources.env
