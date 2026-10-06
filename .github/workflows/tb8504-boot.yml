@@ -1,12 +1,11 @@
 name: TB8504 cloud boot repack
 
 on:
-  workflow_dispatch:
-    inputs:
-      seed_release_tag:
-        description: Draft release tag containing TB8504_CLOUD_SEED_*.zip
-        required: true
-        type: string
+  push:
+    branches:
+      - tb8504-android16-build
+    paths:
+      - "tb8504-build/requests/boot-*.txt"
 
 permissions:
   contents: read
@@ -23,10 +22,47 @@ jobs:
     timeout-minutes: 35
 
     steps:
-      - name: Checkout exact triggering commit
+      - name: Checkout exact request commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.sha }}
+
+      - name: Read boot request
+        shell: bash
+        run: |
+          set -o pipefail
+
+          REQUEST="$(
+            find tb8504-build/requests -maxdepth 1 -type f               -name 'boot-*.txt' -print |
+            sort |
+            tail -n1
+          )"
+
+          if [ -z "$REQUEST" ] || [ ! -f "$REQUEST" ]; then
+            echo "No boot request file found" >&2
+            exit 2
+          fi
+
+          # Only accept the two expected assignment keys.
+          if grep -Ev '^(SEED_RELEASE_TAG|SEED_ZIP_SHA256)=[A-Za-z0-9._:-]+$' "$REQUEST"               | grep -q .; then
+            echo "Invalid boot request syntax" >&2
+            cat "$REQUEST" >&2
+            exit 3
+          fi
+
+          source "$REQUEST"
+
+          if ! [[ "$SEED_ZIP_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid seed SHA256" >&2
+            exit 4
+          fi
+
+          {
+            echo "SEED_RELEASE_TAG=$SEED_RELEASE_TAG"
+            echo "EXPECTED_SEED_ZIP_SHA256=$SEED_ZIP_SHA256"
+          } >> "$GITHUB_ENV"
+
+          echo "BOOT_REQUEST=$REQUEST"
 
       - name: Static safety audit
         shell: bash
@@ -42,23 +78,34 @@ jobs:
       - name: Download private draft seed
         env:
           GH_TOKEN: ${{ github.token }}
-          SEED_TAG: ${{ inputs.seed_release_tag }}
         shell: bash
         run: |
           set -o pipefail
           mkdir -p /tmp/tb8504-seed
 
-          gh release view "$SEED_TAG"             --repo "$GITHUB_REPOSITORY"             --json isDraft,tagName             --jq '.isDraft, .tagName' | tee /tmp/tb8504-seed/release-info.txt
+          gh release view "$SEED_RELEASE_TAG"             --repo "$GITHUB_REPOSITORY"             --json isDraft,tagName             --jq '.isDraft, .tagName' |
+            tee /tmp/tb8504-seed/release-info.txt
 
           grep -Fx 'true' /tmp/tb8504-seed/release-info.txt
+          grep -Fx "$SEED_RELEASE_TAG" /tmp/tb8504-seed/release-info.txt
 
-          gh release download "$SEED_TAG"             --repo "$GITHUB_REPOSITORY"             --pattern 'TB8504_CLOUD_SEED_*.zip'             --dir /tmp/tb8504-seed
+          gh release download "$SEED_RELEASE_TAG"             --repo "$GITHUB_REPOSITORY"             --pattern 'TB8504_CLOUD_SEED_*.zip'             --dir /tmp/tb8504-seed
 
-          mapfile -t SEEDS < <(find /tmp/tb8504-seed -maxdepth 1 -type f             -name 'TB8504_CLOUD_SEED_*.zip' -print)
+          mapfile -t SEEDS < <(
+            find /tmp/tb8504-seed -maxdepth 1 -type f               -name 'TB8504_CLOUD_SEED_*.zip' -print
+          )
 
           if [ "${#SEEDS[@]}" -ne 1 ]; then
             echo "Expected exactly one cloud seed ZIP, found ${#SEEDS[@]}" >&2
-            exit 2
+            exit 5
+          fi
+
+          ACTUAL_SEED_SHA256="$(sha256sum "${SEEDS[0]}" | awk '{print $1}')"
+          echo "ACTUAL_SEED_ZIP_SHA256=$ACTUAL_SEED_SHA256"
+
+          if [ "$ACTUAL_SEED_SHA256" != "$EXPECTED_SEED_ZIP_SHA256" ]; then
+            echo "Seed ZIP SHA256 mismatch" >&2
+            exit 6
           fi
 
           echo "SEED_ZIP=${SEEDS[0]}" >> "$GITHUB_ENV"
@@ -128,20 +175,20 @@ PY
           if [ "$LOCAL_KERNEL_HEAD" != "$KERNEL_SHA" ]; then
             echo "Local Android 16 kernel HEAD is not the cloud baseline." >&2
             echo "LOCAL=$LOCAL_KERNEL_HEAD CLOUD=$KERNEL_SHA" >&2
-            exit 3
+            exit 7
           fi
 
           for V in "$KERNEL_PATCH_BYTES" "$KERNEL_MBOX_BYTES" "$KERNEL_UNTRACKED"; do
             if ! [[ "$V" =~ ^[0-9]+$ ]]; then
               echo "Invalid kernel reconciliation metadata: $V" >&2
-              exit 4
+              exit 8
             fi
           done
 
           if [ "$KERNEL_PATCH_BYTES" -ne 0 ] ||              [ "$KERNEL_MBOX_BYTES" -ne 0 ] ||              [ "$KERNEL_UNTRACKED" -ne 0 ]; then
             echo "Local kernel has unreconciled source state." >&2
             echo "patch=$KERNEL_PATCH_BYTES mbox=$KERNEL_MBOX_BYTES untracked=$KERNEL_UNTRACKED" >&2
-            exit 5
+            exit 9
           fi
 
           echo "LOCAL_KERNEL_RECONCILIATION=PASS"
@@ -160,7 +207,7 @@ PY
 
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
             echo "No successful TB8504 kernel workflow run found" >&2
-            exit 6
+            exit 10
           fi
 
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
