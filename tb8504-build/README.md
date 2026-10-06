@@ -1,26 +1,89 @@
 # Lenovo TB-8504F Android 16 cloud build lane
 
-This branch is isolated from the Tizen project. It exists only to move safe, reproducible TB-8504F build work off the local PC.
+This branch is isolated from the Tizen project. It moves only safe, reproducible TB-8504F build work off the local PC.
 
-## What is real in GitHub now
+## Cloud scope
 
-The workflow builds the TB8504 Linux 3.18 kernel, the TB8504 DTB and kernel modules from pinned public sources. It then audits the produced artifacts and uploads them as a GitHub Actions artifact. It never flashes a device.
+GitHub builds and audits:
 
-Pinned kernel:
-- `lenovo-msm8917/kernel_lenovo_msm8917`
-- branch `lineage-21.0`
-- commit `d242d540d9f5328919e189235e74e433418f6d81`
-- defconfig `lineageos_tb8504_defconfig`
+- Linux 3.18 TB8504 kernel
+- TB8504 DTB
+- the expected 12 kernel modules
+- Android 16 boot.img repack once a validated local seed is supplied
 
-The defconfig is required to contain TB8504, msm8937 and ext4/fs encryption support.
+It never runs adb, fastboot, audio playback or any device write.
 
-## Why boot.img and recovery.img are gated
+## Pinned kernel baseline
 
-The current Android 16 device tree/ramdisk modifications live in the local LineageOS 23.2 tree and are not yet present in GitHub. Building `boot.img` or `recovery.img` from an old public ramdisk would create an artifact that looks valid but is not the Android 16 port we audited locally.
+- repository: `lenovo-msm8917/kernel_lenovo_msm8917`
+- baseline branch (documentation only): `lineage-21.0`
+- exact commit: `d242d540d9f5328919e189235e74e433418f6d81`
+- defconfig: `lineageos_tb8504_defconfig`
+- toolchain commit is pinned in `config/sources.env`
 
-Therefore this cloud lane does **not** fabricate boot/recovery images. The next cloud stage is enabled only after the adapted Android 16 device/ramdisk state is reproduced here.
+The workflow fetches the exact commit SHA and checks out detached. It does not trust a moving branch head.
 
-Known physical layout:
+Kernel audit requires:
+
+- TB8504 + msm8937 config
+- ext4/fs encryption
+- KEYS, AES, XTS, CTS, CBC and SHA256 crypto support
+- forced module signing
+- the expected 12 module names
+- valid signed-module trailers
+- the expected TB8504 DTB embedded in Image.gz-dtb
+- partition-size safety
+
+Because this legacy kernel auto-generates an X.509 module signing key for each clean build, signed kernel/module hashes can differ between otherwise identical runs. The audit records unsigned module hashes to distinguish real code changes from signing-key randomness. Security is not weakened just to force identical signed hashes.
+
+## Android 16 seed bridge
+
+The adapted Android 16 ramdisk/device state still originates from the already-built local LineageOS 23.2 workspace.
+
+The seed is never committed to this public branch.
+
+`scripts/export-cloud-seed.sh`:
+
+1. exports source patches, local commits, untracked files and repo metadata;
+2. includes the known modified repos, including GPS/LOC;
+3. automatically discovers any additional dirty repo;
+4. sanitizes remote URLs and skips sensitive untracked files;
+5. includes the existing Android 16 boot.img seed;
+6. generates SHA256SUMS;
+7. optionally uploads the archive to a GitHub **draft release**;
+8. writes a tiny public request file containing only the draft tag and seed ZIP SHA256.
+
+The request commit triggers `.github/workflows/tb8504-boot.yml`.
+
+The boot workflow refuses to repack until:
+
+- the private draft seed downloads successfully;
+- archive SHA256 matches the request;
+- seed audit passes;
+- boot header is legacy v0 / page size 2048 with TB8504 load addresses;
+- the local kernel HEAD equals the pinned cloud kernel baseline;
+- no local kernel patch, local kernel commit bundle or kernel untracked file remains unreconciled;
+- the downloaded cloud kernel independently passes the current kernel auditor.
+
+Only then does it replace the kernel in the proven boot seed.
+
+## Boot repack invariants
+
+`repack-boot.sh` pins LineageOS mkbootimg by exact commit and requires:
+
+- boot header v0
+- 2048-byte pages
+- kernel address 0x80008000
+- ramdisk address 0x81000000
+- tags address 0x80000100
+- no second-stage payload
+- output <= 67,108,864 bytes
+- repacked kernel SHA256 equals the cloud kernel SHA256
+- ramdisk / second / recovery_dtbo / dtb are byte-identical to the seed where present
+- header semantics remain unchanged apart from kernel-size/hash-derived fields
+
+## Physical layout
+
 - boot: 67,108,864 bytes
 - recovery: 67,108,864 bytes
 - system: 4,080,218,112 bytes
@@ -28,15 +91,15 @@ Known physical layout:
 - non-A/B
 - vendor inside system (`system/vendor`)
 
-## Safety rules
+## What stays local
 
-- no fastboot
-- no adb
-- no device writes
-- no audio playback
-- source commits are pinned
-- SHA256 and sizes are recorded
-- missing DTB/config/modules are hard failures
-- a kernel payload at or above the boot partition size is a hard failure
+The PC/tablet is still required for:
 
-Local PC remains required for physical backup, temporary recovery boot, flashing, first boot and hardware validation.
+- physical partition/GPT backup
+- temporary recovery boot
+- actual flashing
+- first Android 16 boot
+- adb/logcat/dmesg runtime validation
+- display/touch/Wi-Fi/GPS/video/audio hardware testing
+
+No cloud workflow performs those operations.
