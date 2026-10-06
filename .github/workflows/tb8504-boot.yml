@@ -1,0 +1,108 @@
+name: TB8504 cloud boot repack
+
+on:
+  push:
+    branches:
+      - tb8504-android16-build
+    paths:
+      - "tb8504-build/seeds/boot_seed.img"
+      - "tb8504-build/scripts/repack-boot.sh"
+      - "tb8504-build/config/boot-tools.env"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  boot:
+    name: Repack and audit Android 16 boot.img
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout cloud build lane
+        uses: actions/checkout@v4
+        with:
+          ref: tb8504-android16-build
+
+      - name: Verify seed and scripts
+        shell: bash
+        run: |
+          test -s tb8504-build/seeds/boot_seed.img
+          bash -n tb8504-build/scripts/repack-boot.sh
+          ! grep -niE '(^|[[:space:]])(adb|fastboot)[[:space:]]' tb8504-build/scripts/repack-boot.sh
+          ! grep -niE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' tb8504-build/scripts/repack-boot.sh
+
+      - name: Locate latest successful cloud kernel
+        id: kernel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          RUN_ID="$(gh run list             --repo "$GITHUB_REPOSITORY"             --workflow tb8504-kernel.yml             --branch tb8504-android16-build             --status success             --limit 1             --json databaseId             --jq '.[0].databaseId')"
+
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No successful TB8504 kernel workflow run found" >&2
+            exit 2
+          fi
+
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "KERNEL_RUN_ID=$RUN_ID"
+
+      - name: Download latest audited kernel artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: TB8504-kernel-audit-*
+          path: /tmp/tb8504-kernel
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.kernel.outputs.run_id }}
+
+      - name: Verify downloaded kernel baseline
+        shell: bash
+        run: |
+          test -s /tmp/tb8504-kernel/Image.gz-dtb
+          test -s /tmp/tb8504-kernel/report/STATUS.txt
+          grep -Fx 'FINAL_RC=0' /tmp/tb8504-kernel/report/STATUS.txt
+          grep -Fx 'FLASH_PERFORMED=NO' /tmp/tb8504-kernel/report/SUMMARY.txt
+          sha256sum /tmp/tb8504-kernel/Image.gz-dtb
+
+      - name: Repack Android 16 boot image
+        shell: bash
+        run: |
+          chmod +x tb8504-build/scripts/repack-boot.sh
+          tb8504-build/scripts/repack-boot.sh             tb8504-build/seeds/boot_seed.img             /tmp/tb8504-kernel/Image.gz-dtb             tb8504-build/out/boot-repack
+
+      - name: Publish boot audit summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f tb8504-build/out/boot-repack/artifact/report/SUMMARY.txt ]; then
+            {
+              echo '## TB8504 boot.img audit'
+              echo '~~~text'
+              cat tb8504-build/out/boot-repack/artifact/report/SUMMARY.txt
+              echo '~~~'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f tb8504-build/out/boot-repack/artifact/report/STATUS.txt ]; then
+            {
+              echo '## Status'
+              echo '~~~text'
+              cat tb8504-build/out/boot-repack/artifact/report/STATUS.txt
+              echo '~~~'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload boot.img and audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TB8504-boot-audit-${{ github.run_number }}
+          path: tb8504-build/out/boot-repack/artifact/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
