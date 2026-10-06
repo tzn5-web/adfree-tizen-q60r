@@ -113,6 +113,12 @@ jobs:
           echo "KERNEL_PATCH_BYTES=$KERNEL_PATCH_BYTES" >> "$GITHUB_ENV"
           echo "KERNEL_MBOX_BYTES=$KERNEL_MBOX_BYTES" >> "$GITHUB_ENV"
           echo "KERNEL_UNTRACKED=$KERNEL_UNTRACKED" >> "$GITHUB_ENV"
+          INSTALLED_MODULE_COUNT="$(grep '^INSTALLED_MODULE_COUNT=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
+          LOCAL_MODULE_SIGNING_CERT_SHA256="$(grep '^LOCAL_MODULE_SIGNING_CERT_SHA256=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
+          INSTALLED_MODULE_SIGNATURE_MISMATCHES="$(grep '^INSTALLED_MODULE_SIGNATURE_MISMATCHES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
+          echo "INSTALLED_MODULE_COUNT=$INSTALLED_MODULE_COUNT" >> "$GITHUB_ENV"
+          echo "LOCAL_MODULE_SIGNING_CERT_SHA256=$LOCAL_MODULE_SIGNING_CERT_SHA256" >> "$GITHUB_ENV"
+          echo "INSTALLED_MODULE_SIGNATURE_MISMATCHES=$INSTALLED_MODULE_SIGNATURE_MISMATCHES" >> "$GITHUB_ENV"
           python3 tb8504-build/scripts/extract-boot-seed.py "$SEED_ZIP" /tmp/tb8504-seed/boot_seed.img
 
       - name: Require reconciled local kernel source
@@ -180,6 +186,43 @@ jobs:
           grep -Fx "MODULE_COUNT=$EXPECTED_MODULE_COUNT" /tmp/tb8504-kernel/report/SUMMARY.txt
           grep -Fx 'KERNEL_AUDIT_RC=0' /tmp/tb8504-kernel/report/SUMMARY.txt
           python3 tb8504-build/scripts/audit-kernel.py /tmp/tb8504-kernel 2>&1 | tee /tmp/tb8504-kernel/independent-audit.txt
+
+      - name: Enforce kernel-module signing coherence
+        shell: bash
+        run: |
+          set -o pipefail
+          for VALUE in "$INSTALLED_MODULE_COUNT" "$INSTALLED_MODULE_SIGNATURE_MISMATCHES"; do
+            if ! [[ "$VALUE" =~ ^[0-9]+$ ]]; then
+              echo "Invalid module-signing metadata: $VALUE" >&2
+              exit 11
+            fi
+          done
+
+          if [ "$INSTALLED_MODULE_SIGNATURE_MISMATCHES" -ne 0 ]; then
+            echo "Local installed module set is not coherent with its exported signing certificate." >&2
+            exit 12
+          fi
+
+          if [ "$INSTALLED_MODULE_COUNT" -gt 0 ]; then
+            test -s /tmp/tb8504-kernel/module-signing.x509
+            CLOUD_MODULE_SIGNING_CERT_SHA256="$(sha256sum /tmp/tb8504-kernel/module-signing.x509 | awk '{print $1}')"
+            echo "CLOUD_MODULE_SIGNING_CERT_SHA256=$CLOUD_MODULE_SIGNING_CERT_SHA256"
+
+            if ! [[ "$LOCAL_MODULE_SIGNING_CERT_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Local module signing certificate hash is missing/invalid." >&2
+              exit 13
+            fi
+
+            if [ "$CLOUD_MODULE_SIGNING_CERT_SHA256" != "$LOCAL_MODULE_SIGNING_CERT_SHA256" ]; then
+              echo "Refusing unsafe boot repack: cloud kernel signing identity differs from installed Android 16 modules." >&2
+              echo "LOCAL=$LOCAL_MODULE_SIGNING_CERT_SHA256" >&2
+              echo "CLOUD=$CLOUD_MODULE_SIGNING_CERT_SHA256" >&2
+              echo "Next safe path: pair the cloud kernel with modules from the same cloud build, or preserve the local seed kernel." >&2
+              exit 14
+            fi
+          fi
+
+          echo "KERNEL_MODULE_SIGNING_COHERENCE=PASS"
 
       - name: Repack Android 16 boot image
         shell: bash
