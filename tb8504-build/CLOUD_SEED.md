@@ -2,15 +2,65 @@
 
 The Android 16 source modifications currently live in the local LineageOS 23.2 workspace. GitHub must not guess or replace that state with an older public ramdisk.
 
-Use `scripts/export-cloud-seed.sh` once on the local workspace. It performs **no build** and **no device access**. It exports source diffs, untracked files, the adapted device tree, metadata and—if already present—the existing Android 16 boot/recovery images as seed inputs.
+## Export
 
-Before anything from the archive is admitted to the GitHub build lane, run `scripts/audit-cloud-seed.py`. The audit verifies archive paths, all exported SHA256 values, partition-size metadata, Android boot magic and device-tree tar safety.
+Run `scripts/export-cloud-seed.sh` on the local workspace. It does **no build** and **no device access**.
 
-Binary boot/recovery seeds are intentionally **not automatically committed to this public repository**. Source changes and binary seed handling are reviewed separately.
+The archive contains:
 
-After a clean seed audit:
-1. source diffs/device tree are reconciled with the cloud lane;
-2. the cloud-built kernel remains the authoritative kernel artifact;
-3. `repack-boot.sh` replaces only the kernel in the proven Android 16 boot seed;
-4. ramdisk/DTB/second/recovery_dtbo components must remain byte-identical;
-5. physical flashing remains local-only.
+- the adapted TB8504 device tree
+- working-tree binary patches
+- local commit bundles for the curated modified repos
+- untracked non-sensitive files
+- full repo status inventory
+- sanitized repo metadata
+- existing Android 16 boot.img and optional recovery.img
+- SHA256SUMS
+
+Known relevant repos explicitly include device, vendor, kernel, Qualcomm audio/media/display/GPS, Lineage compat and legacy Qualcomm SELinux. Additional dirty repo projects are discovered automatically.
+
+Sensitive untracked filenames such as private keys, keystores, tokens, credentials and .env files are skipped and reported.
+
+## Audit
+
+`scripts/audit-cloud-seed.py` rejects:
+
+- unsafe ZIP/tar paths
+- duplicate ZIP entries
+- incomplete SHA256 coverage
+- credential-like text leakage
+- sensitive filenames
+- archive expansion beyond safety limits
+- a missing boot seed
+- wrong boot magic/header/page size/load addresses
+- missing kernel HEAD metadata
+- an export that omitted Qualcomm GPS/LOC
+
+It also reports the exact local kernel HEAD and whether the kernel has working-tree patches, local commit bundles or untracked files.
+
+## Private GitHub transport
+
+The binary seed is not committed to the public repository.
+
+With `TB8504_UPLOAD_DRAFT=1`, the exporter uses an authenticated `gh` CLI to:
+
+1. upload the seed ZIP to a GitHub draft release;
+2. compute its SHA256;
+3. commit a small `tb8504-build/requests/boot-*.txt` request to the isolated branch.
+
+The request contains only:
+
+- the draft release tag
+- the seed ZIP SHA256
+
+That request triggers the boot workflow. Draft release data remains unpublished.
+
+If `gh` is unavailable or unauthenticated, the archive still remains on the Windows Desktop and can be inspected separately; no public fallback upload is attempted.
+
+## Reconciliation rule
+
+A local kernel divergence is a hard stop. GitHub does not silently replace a modified local kernel with the public baseline.
+
+If the seed reports any kernel patch/commit/untracked state, that difference is reviewed and either reproduced in the cloud kernel lane or explicitly proven build-only/non-runtime before boot repack proceeds.
+
+Physical flashing remains local-only.
