@@ -3,3 +3,6 @@ dist/
 node_modules/
 *.wgt
 *.zip
+tb8504-build/seeds/
+tb8504-build/out/
+tb8504-build/requests/*.local
