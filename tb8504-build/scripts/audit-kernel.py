@@ -54,7 +54,7 @@ def sha256(path: Path) -> str:
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
-    return h.hexddef parse_module_signature(data: bytes):
+    return h.hexdigest()\n\n\ndef parse_module_signature(data: bytes):
     if not data.endswith(MODULE_SIG_MAGIC):
         raise ValueError("module signature marker missing")
 
