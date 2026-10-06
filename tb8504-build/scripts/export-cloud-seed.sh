@@ -343,6 +343,26 @@ if [ "$ZIP_RC" -ne 0 ]; then
     fail "archive creation/integrity failed rc=$ZIP_RC"
 fi
 
+# Run the same seed auditor locally before any optional upload.
+if [ "$RC" -eq 0 ]; then
+    AUDITOR_TMP="/tmp/TB8504_audit_cloud_seed.py"
+    AUDITOR_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$GITHUB_TARGET/tb8504-build/scripts/audit-cloud-seed.py"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        fail "curl unavailable; cannot perform mandatory local seed audit"
+    elif ! curl -fsSL "$AUDITOR_URL" -o "$AUDITOR_TMP"; then
+        fail "cannot download mandatory cloud-seed auditor"
+    else
+        python3 "$AUDITOR_TMP" "$ARCHIVE" 2>&1 | tee "$OUT/meta/LOCAL_SEED_AUDIT.txt"
+        AUDIT_RC=${PIPESTATUS[0]}
+        if [ "$AUDIT_RC" -ne 0 ]; then
+            fail "mandatory local cloud-seed audit failed rc=$AUDIT_RC"
+        else
+            echo "LOCAL_CLOUD_SEED_AUDIT=PASS"
+        fi
+    fi
+fi
+
 DRAFT_RELEASE_TAG=""
 
 if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
