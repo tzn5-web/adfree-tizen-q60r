@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import hashlib
+import re
 import struct
+import subprocess
 import sys
 
 BOOT_LIMIT = 67_108_864
@@ -52,10 +54,7 @@ def sha256(path: Path) -> str:
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
-    return h.hexdigest()
-
-
-def strip_module_signature(data: bytes) -> bytes:
+    return h.hexddef parse_module_signature(data: bytes):
     if not data.endswith(MODULE_SIG_MAGIC):
         raise ValueError("module signature marker missing")
 
@@ -75,11 +74,15 @@ def strip_module_signature(data: bytes) -> bytes:
     if unsigned_end <= 0:
         raise ValueError("invalid signed-module tail lengths")
 
-    sig_start = info_start - sig_len
-    if sig_len < 2 or sig_start < 0:
-        raise ValueError("invalid module signature length")
+    signer_start = unsigned_end
+    keyid_start = signer_start + signer_len
+    sig_start = keyid_start + keyid_len
 
-    declared_rsa_len = struct.unpack(">H", data[sig_start:sig_start + 2])[0]
+    signature_blob = data[sig_start:info_start]
+    if len(signature_blob) != sig_len or sig_len < 2:
+        raise ValueError("invalid module signature blob length")
+
+    declared_rsa_len = struct.unpack(">H", signature_blob[:2])[0]
     if declared_rsa_len != sig_len - 2:
         raise ValueError(
             f"signature length mismatch footer={sig_len} rsa={declared_rsa_len}"
@@ -88,7 +91,46 @@ def strip_module_signature(data: bytes) -> bytes:
     if algo != 1 or ident != 1:
         raise ValueError(f"unexpected signature metadata algo={algo} ident={ident}")
 
-    return data[:unsigned_end]
+    signer = data[signer_start:keyid_start]
+    keyid = data[keyid_start:sig_start]
+
+    return {
+        "unsigned": data[:unsigned_end],
+        "signer": signer,
+        "keyid": keyid,
+        "digest_id": digest,
+        "algo_id": algo,
+        "ident_id": ident,
+    }
+
+
+def cert_subject_key_id(cert: Path) -> str:
+    try:
+        proc = subprocess.run(
+            [
+                "openssl",
+                "x509",
+                "-inform",
+                "DER",
+                "-in",
+                str(cert),
+                "-noout",
+                "-ext",
+                "subjectKeyIdentifier",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError(f"cannot read signing certificate SKI: {exc}") from exc
+
+    hex_pairs = re.findall(r"(?i)\b[0-9a-f]{2}\b", proc.stdout)
+    if not hex_pairs:
+        raise ValueError("subjectKeyIdentifier not found in signing certificate")
+
+    return "".join(x.lower() for x in hex_pairs)
+gned_end]
 
 
 def main() -> int:
@@ -100,6 +142,7 @@ def main() -> int:
     image = root / "Image.gz-dtb"
     dtb = root / EXPECTED_DTB
     config = root / "kernel.config"
+    signing_cert = root / "module-signing.x509"
     module_dir = root / "modules"
     modules = sorted(module_dir.glob("*.ko"))
     errors: list[str] = []
@@ -138,6 +181,17 @@ def main() -> int:
             else:
                 print(f"AUDIT_CONFIG_OK={required}")
 
+    expected_keyid = ""
+    if not signing_cert.is_file() or signing_cert.stat().st_size == 0:
+        errors.append("module-signing.x509 missing/empty")
+    else:
+        print(f"AUDIT_SIGNING_CERT_SHA256={sha256(signing_cert)}")
+        try:
+            expected_keyid = cert_subject_key_id(signing_cert)
+            print(f"AUDIT_SIGNING_CERT_SKI={expected_keyid}")
+        except ValueError as exc:
+            errors.append(str(exc))
+
     actual_module_names = {p.name for p in modules}
     print(f"AUDIT_MODULE_COUNT={len(modules)}")
     print("AUDIT_MODULE_NAMES=" + ",".join(sorted(actual_module_names)))
@@ -159,15 +213,27 @@ def main() -> int:
         print(f"MODULE_SHA256={module.name}:{sha256_bytes(data)}")
 
         try:
-            unsigned = strip_module_signature(data)
+            sig = parse_module_signature(data)
         except ValueError as exc:
             errors.append(f"{module.name}: {exc}")
             continue
 
+        unsigned = sig["unsigned"]
+        signer = sig["signer"].decode("utf-8", "replace")
+        keyid = sig["keyid"].hex()
+        print(f"MODULE_SIGNER={module.name}:{signer}")
+        print(f"MODULE_SIGNER_KEYID={module.name}:{keyid}")
+        print(f"MODULE_SIGNATURE_DIGEST_ID={module.name}:{sig['digest_id']}")
         print(
             f"MODULE_UNSIGNED_SHA256={module.name}:{sha256_bytes(unsigned)}:"
             f"unsigned_size={len(unsigned)}"
         )
+
+        if expected_keyid and keyid.lower() != expected_keyid.lower():
+            errors.append(
+                f"{module.name}: signer key-id mismatch "
+                f"module={keyid} cert={expected_keyid}"
+            )
 
     if errors:
         for error in errors:
