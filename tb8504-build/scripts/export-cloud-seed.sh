@@ -8,7 +8,7 @@ STAMP="$(date +%Y%m%d_%H%M%S)"
 OUT="$ROOT/TB8504_CLOUD_SEED_$STAMP"
 ZIP_NAME="TB8504_CLOUD_SEED_$STAMP.zip"
 
-mkdir -p "$OUT/patches" "$OUT/untracked" "$OUT/meta" "$OUT/seeds"
+mkdir -p "$OUT/patches" "$OUT/commits" "$OUT/untracked" "$OUT/meta" "$OUT/seeds"
 RC=0
 
 log() { printf '%s\n' "$*"; }
@@ -55,6 +55,41 @@ for REL in "${REPOS[@]}"; do
 
     git -C "$DIR" status --short > "$OUT/meta/$KEY.status.txt" 2>&1
     git -C "$DIR" diff --binary HEAD > "$OUT/patches/$KEY.patch" 2>&1
+
+    # Preserve committed local work too. git diff HEAD alone cannot see
+    # commits that exist only in this workspace.
+    UPSTREAM="$(git -C "$DIR" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+    if [ -z "$UPSTREAM" ] && [ -n "$BRANCH" ]; then
+        if git -C "$DIR" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
+            UPSTREAM="origin/$BRANCH"
+        fi
+    fi
+
+    if [ -n "$UPSTREAM" ]; then
+        BASE_SHA="$(git -C "$DIR" merge-base HEAD "$UPSTREAM" 2>/dev/null)"
+        if [ -n "$BASE_SHA" ] && [ "$BASE_SHA" != "$HEAD_SHA" ]; then
+            git -C "$DIR" format-patch --binary --stdout "$BASE_SHA..HEAD" \
+                > "$OUT/commits/$KEY.mbox" 2> "$OUT/meta/$KEY.format-patch.stderr.txt"
+            FP_RC=$?
+            if [ "$FP_RC" -ne 0 ]; then
+                warn "format-patch failed for $REL rc=$FP_RC"
+            fi
+        else
+            : > "$OUT/commits/$KEY.mbox"
+        fi
+        {
+            echo "UPSTREAM=$UPSTREAM"
+            echo "BASE=$BASE_SHA"
+            echo "HEAD=$HEAD_SHA"
+        } > "$OUT/meta/$KEY.upstream.txt"
+    else
+        warn "no tracking upstream for $REL; HEAD metadata + working-tree diff exported"
+        {
+            echo "UPSTREAM="
+            echo "BASE="
+            echo "HEAD=$HEAD_SHA"
+        } > "$OUT/meta/$KEY.upstream.txt"
+    fi
 
     while IFS= read -r -d '' F; do
         SRC="$DIR/$F"
@@ -106,10 +141,13 @@ done
 } > "$OUT/meta/EXPORT.txt"
 
 (
-    cd "$OUT" || return 0
-    find . -type f ! -name SHA256SUMS -print0 |
-        sort -z |
-        xargs -0 -r sha256sum > SHA256SUMS
+    if cd "$OUT"; then
+        find . -type f ! -name SHA256SUMS -print0 |
+            sort -z |
+            xargs -0 -r sha256sum > SHA256SUMS
+    else
+        warn "cannot enter export directory for SHA256SUMS"
+    fi
 )
 
 WIN_DESKTOP="$(
