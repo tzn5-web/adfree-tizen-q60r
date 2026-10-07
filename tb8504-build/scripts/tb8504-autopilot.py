@@ -332,6 +332,26 @@ class Autopilot:
         if free < 15 * 1024**3:
             raise StopAutopilot(f"insufficient free space: {free} bytes")
         self.refresh_tooling()
+        if self.upload_seed:
+            auth = self.run(
+                ["gh", "auth", "status"],
+                log_name="gh-auth-status.log",
+            )
+            if auth.rc != 0:
+                raise StopAutopilot(
+                    "GitHub authentication required for --upload-seed"
+                )
+            remote_head = self.capture([
+                "gh", "api", "--method", "GET",
+                f"repos/{REPO}/branches/{BRANCH}",
+                "--jq", ".commit.sha",
+            ])
+            if remote_head != self.tooling_ref:
+                raise StopAutopilot(
+                    f"GitHub branch moved before converge: "
+                    f"{remote_head} != {self.tooling_ref}"
+                )
+            self.say("SEED_HANDOFF_PREFLIGHT=PASS")
         self.snapshot_sources("before")
         self.verify_source_heads()
         self.say("PREFLIGHT=PASS")
@@ -2074,6 +2094,7 @@ def static_self_test() -> None:
         "_ARTIFACT_REFRESH=PASS",
         "--upload-seed",
         "CLOUD_SEED_V2_HANDOFF=PASS",
+        "SEED_HANDOFF_PREFLIGHT=PASS",
     )
     for guard in required_guards:
         if guard not in source_text and guard not in json.dumps(knowledge):
