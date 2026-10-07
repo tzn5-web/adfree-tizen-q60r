@@ -223,7 +223,7 @@ fi
 if [ -z "$PROVENANCE_DIR" ] || [ ! -d "$PROVENANCE_DIR" ]; then
     fail "autopilot provenance directory missing"
 else
-    for NAME in workspace-source-state.json gps-source-state.json primary-source-state.json; do
+    for NAME in workspace-source-state.json gps-source-state.json primary-source-state.json static-source-state.json; do
         if [ ! -s "$PROVENANCE_DIR/$NAME" ]; then
             fail "required autopilot provenance file missing: $NAME"
         else
