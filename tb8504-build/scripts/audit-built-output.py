@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import struct
+import tempfile
 import subprocess
 import zipfile
 import xml.etree.ElementTree as ET
@@ -468,7 +469,7 @@ def audit_modules(root: Path, out: Path) -> None:
     print("INSTALLED_MODULE_VERMAGIC_COHERENCE=PASS")
     print("INSTALLED_MODULE_SIGNING_COHERENCE=PASS")
 
-def audit_system_image(out: Path) -> None:
+def audit_system_image(root: Path, out: Path) -> None:
     p=out/"system.img"
     if not p.is_file() or p.stat().st_size<=0:
         fail("system.img missing/empty")
@@ -492,6 +493,49 @@ def audit_system_image(out: Path) -> None:
     print(f"SYSTEM_IMAGE_EXPANDED_SIZE={expanded}")
     print(f"SYSTEM_IMAGE_SHA256={sha(p)}")
     print("SYSTEM_IMAGE_SIZE_CONTRACT=PASS")
+
+    host=root/"out/host/linux-x86/bin"
+    simg2img=host/"simg2img"
+    e2fsck=host/"e2fsck"
+    if not e2fsck.is_file():
+        fail(f"host e2fsck missing after Android build: {e2fsck}")
+    with tempfile.TemporaryDirectory(prefix="tb8504-system-fs-") as td:
+        raw=Path(td)/"system.raw.img"
+        if sparse:
+            if not simg2img.is_file():
+                fail(f"host simg2img missing for sparse system.img: {simg2img}")
+            proc=subprocess.run(
+                [str(simg2img),str(p),str(raw)],
+                text=True,capture_output=True,check=False,
+            )
+            if proc.returncode!=0 or not raw.is_file():
+                fail(
+                    "simg2img failed for system.img: "
+                    + (proc.stderr or proc.stdout).strip()
+                )
+        else:
+            shutil.copyfile(p,raw)
+
+        with raw.open("rb") as fh:
+            fh.seek(1024+56)
+            ext_magic=fh.read(2)
+        if ext_magic!=b"\x53\xef":
+            fail(
+                "system.img is not the expected ext filesystem "
+                f"(superblock magic={ext_magic.hex()})"
+            )
+
+        proc=subprocess.run(
+            [str(e2fsck),"-f","-n",str(raw)],
+            text=True,capture_output=True,check=False,
+        )
+        print(f"SYSTEM_E2FSCK_RC={proc.returncode}")
+        if proc.returncode!=0:
+            tail="\n".join(
+                ((proc.stdout or "")+"\n"+(proc.stderr or "")).splitlines()[-80:]
+            )
+            fail("system.img e2fsck failed: "+tail)
+    print("SYSTEM_IMAGE_FILESYSTEM_AUDIT=PASS")
 
 
 def read_first_api_level(out: Path) -> str:
@@ -666,7 +710,7 @@ def main() -> int:
     audit_vintf(out)
     audit_checkvintf(root,out)
     audit_modules(root,out)
-    audit_system_image(out)
+    audit_system_image(root,out)
     audit_policy(out)
     if args.rom is not None:
         audit_rom_zip(out,args.rom.resolve())
