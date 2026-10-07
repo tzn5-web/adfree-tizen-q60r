@@ -176,8 +176,26 @@ def audit_modules(root: Path) -> None:
     if not modinfo or not openssl or not cert.is_file():
         fail("module-signing audit requires modinfo, openssl and signing_key.x509")
 
+    kernel_obj = out / "obj/KERNEL_OBJ"
+    kernel_release = ""
+    release_file = kernel_obj / "include/config/kernel.release"
+    if release_file.is_file():
+        kernel_release = release_file.read_text("utf-8", errors="replace").strip()
+    if not kernel_release:
+        uts = kernel_obj / "include/generated/utsrelease.h"
+        if uts.is_file():
+            m_rel = re.search(
+                r'#define\\s+UTS_RELEASE\\s+"([^"]+)"',
+                uts.read_text("utf-8", errors="replace"),
+            )
+            if m_rel:
+                kernel_release = m_rel.group(1)
+    if not kernel_release:
+        fail("cannot determine local kernel release for module vermagic audit")
+
     signer_set: set[str] = set()
     key_set: set[str] = set()
+    vermagic_set: set[str] = set()
     for ko in kos:
         signer = subprocess.run(
             [modinfo, "-F", "signer", str(ko)], text=True,
@@ -187,10 +205,20 @@ def audit_modules(root: Path) -> None:
             [modinfo, "-F", "sig_key", str(ko)], text=True,
             capture_output=True, check=False,
         ).stdout.strip()
-        if not signer or not sig_key:
-            fail(f"unsigned or unreadable module signature: {ko.name}")
+        vermagic = subprocess.run(
+            [modinfo, "-F", "vermagic", str(ko)], text=True,
+            capture_output=True, check=False,
+        ).stdout.strip()
+        if not signer or not sig_key or not vermagic:
+            fail(f"unsigned/unreadable module metadata: {ko.name}")
+        if vermagic.split()[0] != kernel_release:
+            fail(
+                f"module vermagic release mismatch {ko.name}: "
+                f"{vermagic!r} != {kernel_release!r}"
+            )
         signer_set.add(signer)
         key_set.add(re.sub(r"[^0-9a-fA-F]", "", sig_key).lower())
+        vermagic_set.add(vermagic)
 
     if len(signer_set) != 1 or len(key_set) != 1:
         fail(f"module signing identity is not coherent signers={signer_set} keys={key_set}")
@@ -216,8 +244,11 @@ def audit_modules(root: Path) -> None:
     if module_key != cert_ski and not module_key.endswith(cert_ski):
         fail(f"module sig_key does not match local certificate SKI {module_key} != {cert_ski}")
 
+    print(f"KERNEL_RELEASE={kernel_release}")
+    print(f"MODULE_VERMAGIC_VARIANTS={len(vermagic_set)}")
     print(f"MODULE_SIGNER={next(iter(signer_set))}")
     print(f"MODULE_SIGNING_SKI={cert_ski}")
+    print("MODULE_VERMAGIC_COHERENCE=PASS")
     print("MODULE_SIGNING_COHERENCE=PASS")
 
 def audit_ramdisk(kind: str, files: dict[str, bytes]) -> None:
