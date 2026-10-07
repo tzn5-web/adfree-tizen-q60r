@@ -13,6 +13,7 @@ UPLOAD_DRAFT="${TB8504_UPLOAD_DRAFT:-0}"
 GITHUB_REPO="${TB8504_GITHUB_REPO:-tzn5-web/adfree-tizen-q60r}"
 GITHUB_TARGET="${TB8504_GITHUB_TARGET:-tb8504-android16-build}"
 TOOLING_REF="${TB8504_TOOLING_REF:-$GITHUB_TARGET}"
+PROVENANCE_DIR="${TB8504_PROVENANCE_DIR:-}"
 
 mkdir -p "$OUT/patches" "$OUT/commits" "$OUT/untracked" "$OUT/meta" "$OUT/seeds" "$OUT/installed-modules"
 RC=0
@@ -211,6 +212,18 @@ if [ -d "$ROOT/.repo/local_manifests" ]; then
     tar -czf "$OUT/local_manifests.tar.gz"         -C "$ROOT/.repo" local_manifests 2>/dev/null         || warn "local manifests tar failed"
 fi
 
+if [ -z "$PROVENANCE_DIR" ] || [ ! -d "$PROVENANCE_DIR" ]; then
+    fail "autopilot provenance directory missing"
+else
+    for NAME in workspace-source-state.json gps-source-state.json primary-source-state.json; do
+        if [ ! -s "$PROVENANCE_DIR/$NAME" ]; then
+            fail "required autopilot provenance file missing: $NAME"
+        else
+            cp -f "$PROVENANCE_DIR/$NAME" "$OUT/meta/$NAME" ||                 fail "cannot capture autopilot provenance file: $NAME"
+        fi
+    done
+fi
+
 PRODUCT_OUT="$ROOT/out/target/product/TB8504"
 
 # Preserve the exact installed kernel-module state from the Android 16 product.
@@ -295,6 +308,7 @@ done
     echo "CREATED_AT=$(date -Iseconds)"
     echo "SEED_FORMAT_VERSION=2"
     echo "TOOLING_REF=$TOOLING_REF"
+    echo "PROVENANCE_CAPTURED=YES"
     echo "NO_BUILD=YES"
     echo "NO_FLASH=YES"
     echo "EXPECTED_BOOT_SIZE=67108864"
