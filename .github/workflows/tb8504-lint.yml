@@ -76,6 +76,12 @@ jobs:
           ! git ls-files 'tb8504-build/out/*' | grep -q .
           ! find tb8504-build -type f -not -path '*/requests/*' -not -path '*/README.md' -not -path '*/CLOUD_SEED.md' -print0 | xargs -0 grep -IlE 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}' | grep -q .
 
+      - name: Autopilot self-test
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/tb8504-autopilot.py --self-test
+
       - name: Cloud lane summary
         shell: bash
         run: |
