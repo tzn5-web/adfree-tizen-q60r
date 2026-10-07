@@ -70,8 +70,12 @@ def audit_shell(path: Path) -> None:
         line=strip_shell_comment(raw).strip()
         if not line:
             continue
-        # Ignore pure diagnostic strings. The command itself is echo/printf.
+        # Ignore pure diagnostic/search strings. For grep/ripgrep the
+        # forbidden-looking text is the pattern being searched for, not a
+        # command that will be executed or a device node that will be written.
         if re.match(r"^(echo|printf)\b", line):
+            continue
+        if re.match(r"^(?:if\s+)?!?\s*(?:grep|egrep|fgrep|rg)\b", line):
             continue
         check_command_text(f"{path.name}:{no}", line)
 
