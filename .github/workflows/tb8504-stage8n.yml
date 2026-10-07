@@ -392,6 +392,55 @@ jobs:
           echo "RESIDUAL_CONTRACT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
 
+      - name: Prepare audited provenance acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tb8504-build/scripts/accept-converged-provenance.py \
+            --seed "$SEED_ZIP" \
+            --knowledge tb8504-build/config/autopilot-knowledge.json \
+            --out /tmp/tb8504-stage8n/report/autopilot-knowledge.accepted.json \
+            --release-tag "$SEED_RELEASE_TAG" \
+            --request-commit "$GITHUB_SHA" \
+            --tooling-ref "$EXPECTED_TOOLING_REF" \
+            2>&1 | tee /tmp/tb8504-stage8n/report/provenance-acceptance.log
+          grep -Fx 'PROVENANCE_ACCEPTANCE_CANDIDATE=PASS' \
+            /tmp/tb8504-stage8n/report/provenance-acceptance.log
+          echo "PROVENANCE_ACCEPTANCE_CANDIDATE=PASS" >> /tmp/tb8504-stage8n/report/STATUS.txt
+
+      - name: Commit audited provenance acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REMOTE_HEAD="$(gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/branches/$GITHUB_REF_NAME" \
+            --jq '.commit.sha')"
+          if [ "$REMOTE_HEAD" != "$GITHUB_SHA" ]; then
+            echo "Branch moved before provenance acceptance: $REMOTE_HEAD != $GITHUB_SHA" >&2
+            exit 31
+          fi
+
+          cp /tmp/tb8504-stage8n/report/autopilot-knowledge.accepted.json \
+            tb8504-build/config/autopilot-knowledge.json
+          git diff --check -- tb8504-build/config/autopilot-knowledge.json
+          if git diff --quiet -- tb8504-build/config/autopilot-knowledge.json; then
+            echo "PROVENANCE_KNOWLEDGE_ALREADY_CURRENT=YES" | \
+              tee -a /tmp/tb8504-stage8n/report/STATUS.txt
+          else
+            git config user.name "TB8504 Audit Bot"
+            git config user.email "tb8504-audit@users.noreply.github.com"
+            git add tb8504-build/config/autopilot-knowledge.json
+            git commit -m "tb8504: accept audited converge provenance"
+            git push origin "HEAD:$GITHUB_REF_NAME"
+            ACCEPT_COMMIT="$(git rev-parse HEAD)"
+            echo "PROVENANCE_ACCEPT_COMMIT=$ACCEPT_COMMIT" | \
+              tee -a /tmp/tb8504-stage8n/report/STATUS.txt
+          fi
+          echo "PROVENANCE_KNOWLEDGE_PROMOTION=PASS" | \
+            tee -a /tmp/tb8504-stage8n/report/STATUS.txt
+
       - name: Publish STAGE8N summary
         if: always()
         shell: bash
