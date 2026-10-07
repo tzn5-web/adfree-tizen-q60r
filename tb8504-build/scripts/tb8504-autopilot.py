@@ -257,6 +257,51 @@ class Autopilot:
         self.say(f"TOOLING_REF={out}")
         return out
 
+    def verify_tooling_ci(self) -> None:
+        raw = self.capture([
+            "gh", "api", "--method", "GET",
+            f"repos/{REPO}/actions/runs",
+            "-f", f"head_sha={self.tooling_ref}",
+            "-f", "event=push",
+            "-f", "per_page=100",
+        ])
+        try:
+            payload = json.loads(raw)
+        except Exception as exc:
+            raise StopAutopilot(
+                f"cannot parse GitHub Actions state for tooling ref: {exc}"
+            )
+        runs = payload.get("workflow_runs", [])
+        if not isinstance(runs, list):
+            raise StopAutopilot("GitHub Actions response has no workflow_runs list")
+        lint_runs = [
+            x for x in runs
+            if isinstance(x, dict)
+            and x.get("name") == "TB8504 cloud lane lint"
+            and x.get("head_sha") == self.tooling_ref
+        ]
+        if not lint_runs:
+            raise StopAutopilot(
+                f"no TB8504 cloud lane lint run found for tooling ref "
+                f"{self.tooling_ref}"
+            )
+        latest = max(
+            lint_runs,
+            key=lambda x: int(x.get("run_number", 0) or 0),
+        )
+        status = str(latest.get("status", ""))
+        conclusion = str(latest.get("conclusion", ""))
+        run_id = latest.get("id")
+        self.say(f"TOOLING_CI_RUN_ID={run_id}")
+        self.say(f"TOOLING_CI_STATUS={status}")
+        self.say(f"TOOLING_CI_CONCLUSION={conclusion}")
+        if status != "completed" or conclusion != "success":
+            raise StopAutopilot(
+                f"tooling ref is not CI-approved: "
+                f"run={run_id} status={status} conclusion={conclusion}"
+            )
+        self.say("TOOLING_CI_GATE=PASS")
+
     def fetch_repo_file(self, path: str, destination: Path) -> None:
         raw = self.capture([
             "gh", "api", "--method", "GET",
@@ -275,6 +320,7 @@ class Autopilot:
 
     def refresh_tooling(self) -> None:
         self.resolve_tooling_ref()
+        self.verify_tooling_ci()
 
         canonical_self = self.report / "canonical-tb8504-autopilot.py"
         self.fetch_repo_file(
@@ -2142,6 +2188,8 @@ def static_self_test() -> None:
         "CLOUD_SEED_V2_HANDOFF=PASS",
         "SEED_HANDOFF_PREFLIGHT=PASS",
         "TB8504_PROVENANCE_DIR",
+        "TOOLING_CI_GATE=PASS",
+        "TB8504 cloud lane lint",
     )
     for guard in required_guards:
         if guard not in source_text and guard not in json.dumps(knowledge):
