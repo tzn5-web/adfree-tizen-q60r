@@ -1134,6 +1134,13 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                     else PARTITION_LIMITS["system"]
                 )
                 self.audit_partition_image("system", limit)
+            elif rebuild_target == "bacon":
+                self.source_changed = False
+                for kind in ("boot", "recovery"):
+                    if not self.audit_image(kind, fresh=True):
+                        raise StopAutopilot(
+                            f"{kind} image audit failed after bacon rebuild"
+                        )
             r = self.run_built_output_audit(
                 f"audit-built-output-{target}-retry.log"
             )
@@ -1252,16 +1259,22 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         bacon_started = time.time()
         self.build_target("bacon")
         self.source_changed = False
-        self.ensure_image("boot")
-        self.ensure_image("recovery")
+        for kind in ("boot", "recovery"):
+            if not self.audit_image(kind, fresh=True):
+                raise StopAutopilot(
+                    f"{kind} image audit failed after bacon build"
+                )
 
         self.converge_sources()
         if self.source_changed:
             self.say("POSTBUILD_SOURCE_CHANGE=INVALIDATES_ARTIFACTS")
             self.build_target("bacon")
             self.source_changed = False
-            self.ensure_image("boot")
-            self.ensure_image("recovery")
+            for kind in ("boot", "recovery"):
+                if not self.audit_image(kind, fresh=True):
+                    raise StopAutopilot(
+                        f"{kind} image audit failed after post-build bacon rebuild"
+                    )
             self.converge_sources()
             if self.source_changed:
                 raise StopAutopilot(
