@@ -186,11 +186,14 @@ jobs:
           dev_head="1"*40
           vendor_head="2"*40
           gps_head="3"*40
+          static_rel="hardware/qcom-caf/msm8996/audio"
+          static_head="6"*40
           manifests="0"*64
           projects=[
               {"path":"device/lenovo/TB8504","head":dev_head,"dirty":True},
               {"path":"vendor/lenovo/TB8504","head":vendor_head,"dirty":True},
               {"path":"hardware/qcom-caf/msm8996/gps","head":gps_head,"dirty":True},
+              {"path":static_rel,"head":static_head,"dirty":True},
           ]
           wh=hashlib.sha256()
           for row in sorted(projects,key=lambda x:x["path"]):
@@ -209,6 +212,15 @@ jobs:
               "device/lenovo/TB8504":b"device patch\n",
               "vendor/lenovo/TB8504":b"vendor patch\n",
               "hardware/qcom-caf/msm8996/gps":b"gps patch\n",
+              static_rel:b"static patch\n",
+          }
+          static={
+              static_rel:{
+                  "head":static_head,
+                  "patch_sha256":h(patches[static_rel]),
+                  "status":[" M Android.bp"],
+                  "untracked":[],
+              }
           }
           empty=h(b"")
           dev_untracked_rel="rootdir/etc/tb8504-selftest.txt"
@@ -261,6 +273,12 @@ jobs:
           knowledge={
               "source_integrity_contracts":{
                   "required_unproven_repo":"hardware/qcom-caf/msm8996/gps",
+                  "static_target_repos":{
+                      static_rel:{
+                          "head":static_head,
+                          "patch_sha256":h(patches[static_rel]),
+                      }
+                  },
                   "dynamic_primary_repos":{
                       "device/lenovo/TB8504":{
                           "head":dev_head,
@@ -292,6 +310,7 @@ jobs:
                   z.writestr("meta/workspace-source-state.json",json.dumps(workspace))
                   z.writestr("meta/gps-source-state.json",json.dumps(gps))
                   z.writestr("meta/primary-source-state.json",json.dumps(primary))
+                  z.writestr("meta/static-source-state.json",json.dumps(static))
                   for rel,data in patches.items():
                       z.writestr("patches/"+rel.replace("/","__")+".patch",data)
                   info=zipfile.ZipInfo(
@@ -315,6 +334,7 @@ jobs:
               out=json.loads(kout.read_text())
               sic=out["source_integrity_contracts"]
               assert sic["gps_repo"]["head"] == gps_head
+              assert sic["static_target_repos"][static_rel]["head"] == static_head
               assert sic["workspace_repo_contract"]["revision_fingerprint"] == workspace["revision_fingerprint"]
               assert sic["dynamic_primary_repos"]["device/lenovo/TB8504"]["post_converge_patch_sha256"] == primary["device/lenovo/TB8504"]["patch_sha256"]
               assert sic["dynamic_primary_repos"]["device/lenovo/TB8504"]["post_converge_untracked_manifest_sha256"] == dev_untracked_manifest
@@ -327,6 +347,27 @@ jobs:
                       if info.filename == "untracked/device/lenovo/TB8504/"+dev_untracked_rel:
                           data=b"tampered bytes\n"
                       dst.writestr(info, data)
+              bad_static=td/"seed-bad-static.zip"
+              with zipfile.ZipFile(seed) as src, zipfile.ZipFile(bad_static,"w") as dst:
+                  for info in src.infolist():
+                      data=src.read(info.filename)
+                      if info.filename == "patches/"+static_rel.replace("/","__")+".patch":
+                          data=b"tampered static patch\n"
+                      dst.writestr(info,data)
+              bad_static_run=subprocess.run([
+                  "python3","tb8504-build/scripts/accept-converged-provenance.py",
+                  "--seed",str(bad_static),
+                  "--knowledge",str(kin),
+                  "--out",str(td/"should-not-exist-static.json"),
+                  "--release-tag","tb8504-selftest",
+                  "--request-commit",request,
+                  "--tooling-ref",tooling,
+              ],text=True,capture_output=True)
+              assert bad_static_run.returncode != 0
+              assert "static source patch bytes disagree" in (
+                  bad_static_run.stdout+bad_static_run.stderr
+              )
+
               bad_mode_seed=td/"seed-bad-mode.zip"
               with zipfile.ZipFile(seed) as src, zipfile.ZipFile(bad_mode_seed,"w") as dst:
                   for info in src.infolist():
