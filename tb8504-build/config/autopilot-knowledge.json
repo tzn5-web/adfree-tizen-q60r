@@ -368,6 +368,12 @@
         "post_converge_untracked_manifest_sha256": null,
         "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE"
       }
+    },
+    "workspace_repo_contract": {
+      "revision_fingerprint": null,
+      "expected_project_count": null,
+      "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE",
+      "policy": "all repo projects contribute path+HEAD; dirty projects outside the explicitly modeled target/host set are forbidden"
     }
   }
 }
