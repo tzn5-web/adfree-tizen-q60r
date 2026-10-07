@@ -53,6 +53,8 @@ jobs:
           fi
           echo "SEED_RELEASE_TAG=$SEED_RELEASE_TAG" >> "$GITHUB_ENV"
           echo "EXPECTED_SEED_ZIP_SHA256=$SEED_ZIP_SHA256" >> "$GITHUB_ENV"
+          EXPECTED_TOOLING_REF="$(git rev-parse "$GITHUB_SHA^")"
+          echo "EXPECTED_TOOLING_REF=$EXPECTED_TOOLING_REF" >> "$GITHUB_ENV"
 
       - name: Static safety audit
         shell: bash
@@ -128,6 +130,7 @@ jobs:
             2>&1 | tee /tmp/tb8504-stage8n/report/seed-audit.txt
           SEED_RC=${PIPESTATUS[0]}
           [ "$SEED_RC" -eq 0 ] || exit "$SEED_RC"
+          grep -Fx "SEED_TOOLING_REF=$EXPECTED_TOOLING_REF" /tmp/tb8504-stage8n/report/seed-audit.txt
           python3 - "$SEED_ZIP" /tmp/tb8504-stage8n/reconstructed <<'PY'
           import sys, tarfile, zipfile
           from pathlib import Path
