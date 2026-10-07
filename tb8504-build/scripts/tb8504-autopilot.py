@@ -2135,6 +2135,7 @@ def static_self_test() -> None:
         "UNKNOWN_BUILD_ERROR",
         "STOP_WITH_DIAGNOSTIC_BUNDLE",
         "did not refresh stale",
+        "STATIC_SOURCE_PROVENANCE_CAPTURE=PASS",
         "_ARTIFACT_REFRESH=PASS",
         "_STALE_ARTIFACT_FORCE_REBUILD=PASS",
         "--upload-seed",
@@ -2186,6 +2187,7 @@ def static_self_test() -> None:
         'force=false',
         'TOOLING_REF=$TOOLING_REF',
         "workspace-source-state.json",
+        "static-source-state.json",
         "gps-source-state.json",
         "primary-source-state.json",
         "PROVENANCE_CAPTURED=YES",
@@ -2204,6 +2206,7 @@ def static_self_test() -> None:
     provenance_text = provenance_helper.read_text("utf-8", errors="replace")
     for guard in (
         "PROVENANCE_ACCEPTANCE_CANDIDATE=PASS",
+        "PROVENANCE_ACCEPT_STATIC_BINDING=PASS",
         "PROVENANCE_ACCEPTED_AFTER_STAGE8N",
         "workspace_revision_fingerprint",
         "verify_untracked_seed",
