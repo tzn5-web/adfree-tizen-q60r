@@ -19,6 +19,12 @@ The archive contains:
 
 Known relevant repos explicitly include device, vendor, kernel, Qualcomm audio/media/display/GPS, Lineage compat and legacy Qualcomm SELinux. Additional dirty repo projects are discovered automatically.
 
+The exporter now distinguishes **requested** repositories from repositories
+that were actually captured. Every requested repo must be a readable Git
+worktree; otherwise export fails. `EXPORTED_REPOS.txt` contains only captured
+repos, and the seed auditor requires a one-to-one match with `REPOS.txt` plus
+the per-repo status, patch, commit-bundle and upstream metadata.
+
 Sensitive untracked filenames such as private keys, keystores, tokens, credentials and .env files are skipped and reported.
 
 ## Audit
@@ -35,8 +41,17 @@ Sensitive untracked filenames such as private keys, keystores, tokens, credentia
 - wrong boot magic/header/page size/load addresses
 - missing kernel HEAD metadata
 - an export that omitted Qualcomm GPS/LOC
+- a requested repository that was declared but not actually captured
+- any mismatch between exported repo metadata and its per-repo patch/status/mbox/upstream files
 
 It also reports the exact local kernel HEAD and whether the kernel has working-tree patches, local commit bundles or untracked files.
+
+The seed `tb8504-cloud-seed-20261007_082702` predates this hardening. It is
+still useful as the historical source for the completed device/vendor STAGE8N
+audit, but it is **not accepted as complete final provenance**, because
+`hardware/qcom-caf/msm8996/gps` was listed in the requested/exported set
+without corresponding captured repo metadata. A new seed must be generated
+after the local autopilot records the actual GPS state.
 
 ## Private GitHub transport
 
