@@ -69,12 +69,27 @@ jobs:
       - name: Safety policy
         shell: bash
         run: |
-          set -o pipefail
-          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' tb8504-build/scripts
-          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' tb8504-build/scripts
-          ! git ls-files 'tb8504-build/seeds/*' | grep -q .
-          ! git ls-files 'tb8504-build/out/*' | grep -q .
-          ! find tb8504-build -type f -not -path '*/requests/*' -not -path '*/README.md' -not -path '*/CLOUD_SEED.md' -print0 | xargs -0 grep -IlE 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}' | grep -q .
+          set -euo pipefail
+          python3 tb8504-build/scripts/audit-script-safety.py
+          if git ls-files 'tb8504-build/seeds/*' | grep -q .; then
+            echo "Tracked seed payload found" >&2
+            exit 20
+          fi
+          if git ls-files 'tb8504-build/out/*' | grep -q .; then
+            echo "Tracked build output found" >&2
+            exit 21
+          fi
+          if find tb8504-build -type f \
+              -not -path '*/requests/*' \
+              -not -path '*/README.md' \
+              -not -path '*/CLOUD_SEED.md' \
+              -not -path '*/__pycache__/*' \
+              -print0 | \
+              xargs -0 grep -IlE 'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}' | \
+              grep -q .; then
+            echo "Credential-like token found in tracked tooling" >&2
+            exit 22
+          fi
 
       - name: Autopilot self-test
         shell: bash
