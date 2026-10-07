@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 import hashlib
 import io
+import json
 import re
 import struct
 import subprocess
@@ -29,6 +30,9 @@ REQUIRED = {
     "meta/MISSING_REPOS.txt",
     "meta/INSTALLED_MODULES.txt",
     "meta/MODULE_SIGNING.txt",
+    "meta/primary-source-state.json",
+    "meta/gps-source-state.json",
+    "meta/workspace-source-state.json",
     "SHA256SUMS",
     "device_lenovo_TB8504.tar.gz",
     "seeds/boot_seed.img",
@@ -36,6 +40,7 @@ REQUIRED = {
 
 EXPECTED_EXPORT = {
     "SEED_FORMAT_VERSION=2",
+    "PROVENANCE_CAPTURED=YES",
     "NO_BUILD=YES",
     "NO_FLASH=YES",
     "EXPECTED_BOOT_SIZE=67108864",
@@ -196,6 +201,88 @@ def audit_device_tar(data: bytes) -> None:
 
         print(f"DEVICE_TREE_TAR_MEMBERS={len(members)}")
         print(f"DEVICE_TREE_TAR_UNCOMPRESSED={total}")
+
+
+def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict]:
+    def member(name: str) -> dict:
+        try:
+            obj = json.loads(z.read(name).decode("utf-8"))
+        except Exception as exc:
+            fail(f"invalid provenance JSON {name}: {exc}")
+        if not isinstance(obj, dict):
+            fail(f"provenance JSON is not an object: {name}")
+        return obj
+
+    workspace = member("meta/workspace-source-state.json")
+    gps = member("meta/gps-source-state.json")
+    primary = member("meta/primary-source-state.json")
+
+    projects = workspace.get("projects")
+    count = workspace.get("project_count")
+    rev = str(workspace.get("revision_fingerprint", ""))
+    manifests = str(workspace.get("local_manifests_sha256", ""))
+    unexpected = workspace.get("unexpected_dirty_repos")
+    if not isinstance(projects, list) or not projects:
+        fail("workspace provenance has no project inventory")
+    if not isinstance(count, int) or count != len(projects):
+        fail("workspace provenance project_count mismatch")
+    if not isinstance(unexpected, list) or unexpected:
+        fail(f"workspace provenance has unexpected dirty repos: {unexpected}")
+    if not re.fullmatch(r"[0-9a-f]{64}", rev):
+        fail("workspace provenance revision fingerprint invalid")
+    if not re.fullmatch(r"[0-9a-f]{64}", manifests):
+        fail("workspace provenance local-manifest fingerprint invalid")
+
+    h = hashlib.sha256()
+    seen: set[str] = set()
+    for row in sorted(projects, key=lambda x: str(x.get("path", ""))):
+        if not isinstance(row, dict):
+            fail("workspace project row is not an object")
+        rel = str(row.get("path", ""))
+        head = str(row.get("head", ""))
+        if not rel or rel in seen or not re.fullmatch(r"[0-9a-f]{40}", head):
+            fail(f"invalid workspace project provenance: {rel!r}:{head!r}")
+        seen.add(rel)
+        h.update(rel.encode("utf-8", "surrogateescape") + b"\0")
+        h.update(head.encode("ascii") + b"\0")
+    h.update(b"LOCAL_MANIFESTS\0" + manifests.encode("ascii") + b"\0")
+    if h.hexdigest() != rev:
+        fail("workspace provenance fingerprint does not recompute")
+
+    mode = str(gps.get("mode", ""))
+    if gps.get("path") != "hardware/qcom-caf/msm8996/gps":
+        fail("GPS provenance path mismatch")
+    if mode == "git":
+        for key, rx in (
+            ("head", r"[0-9a-f]{40}"),
+            ("patch_sha256", r"[0-9a-f]{64}"),
+            ("untracked_manifest_sha256", r"[0-9a-f]{64}"),
+        ):
+            if not re.fullmatch(rx, str(gps.get(key, ""))):
+                fail(f"GPS provenance invalid {key}")
+    elif mode == "tree":
+        if not re.fullmatch(r"[0-9a-f]{64}", str(gps.get("tree_sha256", ""))):
+            fail("GPS tree provenance invalid")
+    else:
+        fail(f"GPS provenance mode is not buildable: {mode!r}")
+
+    expected_primary = {"device/lenovo/TB8504", "vendor/lenovo/TB8504"}
+    if set(primary) != expected_primary:
+        fail(f"primary provenance repo set mismatch: {sorted(primary)}")
+    for rel, row in primary.items():
+        if not isinstance(row, dict):
+            fail(f"primary provenance row invalid: {rel}")
+        if not re.fullmatch(r"[0-9a-f]{40}", str(row.get("head", ""))):
+            fail(f"primary provenance HEAD invalid: {rel}")
+        for key in ("patch_sha256", "untracked_manifest_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", str(row.get(key, ""))):
+                fail(f"primary provenance {key} invalid: {rel}")
+
+    print(f"PROVENANCE_WORKSPACE_PROJECT_COUNT={count}")
+    print(f"PROVENANCE_WORKSPACE_REVISION_FINGERPRINT={rev}")
+    print(f"PROVENANCE_GPS_MODE={mode}")
+    print("CONVERGE_PROVENANCE_STRUCTURE=PASS")
+    return workspace, gps, primary
 
 
 def parse_repo_heads(text: str) -> dict[str, str]:
@@ -452,6 +539,8 @@ def main() -> int:
 
         print(f"SEED_HASHES_VERIFIED={checked}")
 
+        workspace_provenance, gps_provenance, primary_provenance = audit_provenance(z)
+
         module_manifest = parse_module_manifest(
             z.read("meta/INSTALLED_MODULES.txt").decode("utf-8", "replace")
         )
@@ -577,6 +666,15 @@ def main() -> int:
 
         repo_text = z.read("meta/REPOS.txt").decode("utf-8", "replace")
         heads = parse_repo_heads(repo_text)
+
+        for rel, row in primary_provenance.items():
+            if heads.get(rel) != row.get("head"):
+                fail(f"primary provenance HEAD disagrees with exported repo: {rel}")
+        if gps_provenance.get("mode") == "git":
+            gps_rel = "hardware/qcom-caf/msm8996/gps"
+            if heads.get(gps_rel) != gps_provenance.get("head"):
+                fail("GPS provenance HEAD disagrees with exported repo")
+        print("CONVERGE_PROVENANCE_REPO_BINDING=PASS")
         kernel_head = heads.get("kernel/lenovo/msm8917", "")
         if not re.fullmatch(r"[0-9a-f]{40}", kernel_head):
             fail("kernel/lenovo/msm8917 HEAD missing or invalid in REPOS metadata")
