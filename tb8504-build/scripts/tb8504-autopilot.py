@@ -46,6 +46,7 @@ HELPERS = (
     "audit-runtime-contracts.py",
     "audit-local-image.py",
     "audit-built-output.py",
+    "audit-final-package.py",
 )
 FORBIDDEN_COMMAND_PATTERNS = (
     r"(^|\s)adb(\s|$)",
@@ -107,6 +108,8 @@ class Autopilot:
         self.knowledge: dict = {}
         self.release_info: dict[str, str] = {}
         self.source_changed = False
+        self.current_source_fingerprint = ""
+        self.unproven_sources: list[str] = []
         self.handler_uses: dict[str, int] = {}
         self.state_path = self.product_out / ".tb8504-autopilot-state.json"
         self.state = self._load_state()
