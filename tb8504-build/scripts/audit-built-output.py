@@ -60,6 +60,7 @@ CTL_RE = re.compile(r"^\s*setprop\s+ctl\.(?:start|stop|restart)\s+([^\s#;]+)")
 SERVICE_RE = re.compile(r"^service\s+(\S+)\s+([^\s\\]+)")
 NEEDED_RE = re.compile(r"\(NEEDED\).*\[([^\]]+)\]")
 SONAME_RE = re.compile(r"\(SONAME\).*\[([^\]]+)\]")
+EXPECTED_FIRST_API_LEVEL = "25"
 
 def fail(msg: str) -> None:
     print(f"BUILT_OUTPUT_AUDIT_FAIL={msg}")
@@ -577,6 +578,7 @@ def audit_system_image(root: Path, out: Path) -> None:
 
 
 def read_first_api_level(out: Path) -> str:
+    values=set()
     for root in installed_roots(out):
         for p in root.rglob("build.prop"):
             try:
@@ -584,10 +586,39 @@ def read_first_api_level(out: Path) -> str:
                     if raw.startswith("ro.product.first_api_level="):
                         value=raw.split("=",1)[1].strip()
                         if value.isdigit():
-                            return value
+                            values.add(value)
             except OSError:
                 pass
-    return ""
+    if not values:
+        fail("ro.product.first_api_level missing from built output")
+    if len(values) != 1:
+        fail(f"conflicting ro.product.first_api_level values: {sorted(values)}")
+    return next(iter(values))
+
+
+def read_kernel_release(out: Path) -> tuple[str, Path]:
+    kernel_obj=out/"obj/KERNEL_OBJ"
+    config=kernel_obj/".config"
+    if not config.is_file() or config.stat().st_size <= 0:
+        fail(f"kernel config missing for VINTF runtime check: {config}")
+
+    release=""
+    release_file=kernel_obj/"include/config/kernel.release"
+    if release_file.is_file():
+        release=release_file.read_text("utf-8",errors="replace").strip()
+    if not release:
+        uts=kernel_obj/"include/generated/utsrelease.h"
+        if uts.is_file():
+            m=re.search(
+                r'#define\s+UTS_RELEASE\s+"([^"]+)"',
+                uts.read_text("utf-8",errors="replace"),
+            )
+            if m:
+                release=m.group(1).strip()
+    if not release:
+        fail("kernel release missing for VINTF runtime check")
+    return release,config
+
 
 def audit_checkvintf(root: Path, out: Path) -> None:
     tool=root/"out/host/linux-x86/bin/checkvintf"
@@ -619,19 +650,30 @@ def audit_checkvintf(root: Path, out: Path) -> None:
         fail("checkvintf cannot run: staged /vendor directory missing")
 
     first_api=read_first_api_level(out)
-    if first_api:
-        args += ["--property",f"ro.product.first_api_level={first_api}"]
+    if first_api != EXPECTED_FIRST_API_LEVEL:
+        fail(
+            "unexpected device first API level: "
+            f"{first_api} != {EXPECTED_FIRST_API_LEVEL}"
+        )
+    kernel_release,kernel_config=read_kernel_release(out)
+    args += [
+        "--property",f"ro.product.first_api_level={first_api}",
+        "--kernel",f"{kernel_release}:{kernel_config}",
+    ]
 
     proc=subprocess.run(args,text=True,capture_output=True,check=False)
     combined=(proc.stdout or "")+"\n"+(proc.stderr or "")
     print("CHECKVINTF_DIRMAPS="+",".join(mapped))
     print(f"CHECKVINTF_FIRST_API_LEVEL={first_api}")
+    print(f"CHECKVINTF_KERNEL_RELEASE={kernel_release}")
+    print(f"CHECKVINTF_KERNEL_CONFIG={kernel_config}")
     print(f"CHECKVINTF_RC={proc.returncode}")
     if proc.returncode!=0 or "COMPATIBLE" not in combined:
         fail(
             "checkvintf compatibility failed: "
             + "\n".join(combined.splitlines()[-80:])
         )
+    print("CHECKVINTF_KERNEL_REQUIREMENTS=ENFORCED")
     print("CHECKVINTF_COMPATIBILITY=PASS")
 
 def audit_rom_zip(out: Path, rom: Path) -> None:
