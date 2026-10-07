@@ -93,10 +93,17 @@ class CommandResult:
         self.command = command
 
 class Autopilot:
-    def __init__(self, root: Path, goal: str, max_attempts: int):
+    def __init__(
+        self,
+        root: Path,
+        goal: str,
+        max_attempts: int,
+        upload_seed: bool = False,
+    ):
         self.root = root.resolve()
         self.goal = goal
         self.max_attempts = max_attempts
+        self.upload_seed = upload_seed
         self.device = self.root / "device/lenovo/TB8504"
         self.vendor = self.root / "vendor/lenovo/TB8504"
         self.kernel = self.root / "kernel/lenovo/msm8917"
@@ -1148,7 +1155,8 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
     def export_converged_seed(self) -> Path:
         """Export an audited v2 seed from the exact converged source state.
 
-        No build and no upload are performed here. The exporter and its
+        No Android build is performed here. Upload is allowed only when the
+        user explicitly selected --upload-seed. The exporter and its
         cloud-seed auditor are pinned to the same immutable tooling commit as
         this running autopilot.
         """
@@ -1162,7 +1170,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             [
                 "env",
                 f"TB8504_TOOLING_REF={self.tooling_ref}",
-                "TB8504_UPLOAD_DRAFT=0",
+                f"TB8504_UPLOAD_DRAFT={'1' if self.upload_seed else '0'}",
                 f"TB8504_GITHUB_REPO={REPO}",
                 f"TB8504_GITHUB_TARGET={BRANCH}",
                 "bash",str(exporter),str(self.root),
@@ -1186,17 +1194,39 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         if not raw or not archive.is_file() or archive.stat().st_size<=0:
             raise StopAutopilot(f"cloud seed archive missing after export: {raw!r}")
         seed_sha=self.sha_file(archive)
+        uploaded=False
+        release_tag=kv.get("DRAFT_RELEASE_TAG","")
+        request_path=kv.get("STAGE8N_REQUEST_PATH","")
+        if self.upload_seed:
+            if not release_tag or release_tag=="NONE":
+                raise StopAutopilot(
+                    "seed upload requested but no draft release tag was produced"
+                )
+            if not request_path.startswith(
+                "tb8504-build/requests/live/stage8n-"
+            ):
+                raise StopAutopilot(
+                    "seed upload requested but STAGE8N request was not committed"
+                )
+            uploaded=True
+
         self.status["cloud_seed_v2"]={
             "path":str(archive),
             "sha256":seed_sha,
             "size":archive.stat().st_size,
             "tooling_ref":self.tooling_ref,
-            "uploaded":False,
+            "uploaded":uploaded,
+            "release_tag":release_tag or "NONE",
+            "stage8n_request":request_path or "NONE",
         }
         self.say(f"CLOUD_SEED_V2={archive}")
         self.say(f"CLOUD_SEED_V2_SIZE={archive.stat().st_size}")
         self.say(f"CLOUD_SEED_V2_SHA256={seed_sha}")
-        self.say("CLOUD_SEED_V2_UPLOAD=NO")
+        self.say(f"CLOUD_SEED_V2_UPLOAD={'YES' if uploaded else 'NO'}")
+        if uploaded:
+            self.say(f"CLOUD_SEED_V2_RELEASE_TAG={release_tag}")
+            self.say(f"CLOUD_SEED_V2_STAGE8N_REQUEST={request_path}")
+            self.say("CLOUD_SEED_V2_HANDOFF=PASS")
         self.say("CLOUD_SEED_V2_EXPORT=PASS")
         return archive
 
@@ -2023,6 +2053,8 @@ def static_self_test() -> None:
         "STOP_WITH_DIAGNOSTIC_BUNDLE",
         "did not refresh stale",
         "_ARTIFACT_REFRESH=PASS",
+        "--upload-seed",
+        "CLOUD_SEED_V2_HANDOFF=PASS",
     )
     for guard in required_guards:
         if guard not in source_text and guard not in json.dumps(knowledge):
@@ -2096,6 +2128,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     ap.add_argument("--max-attempts", type=int, default=3)
+    ap.add_argument(
+        "--upload-seed",
+        action="store_true",
+        help=(
+            "with --goal converge, upload the audited v2 seed to a private "
+            "GitHub draft release and commit the STAGE8N request; never builds "
+            "or touches the tablet"
+        ),
+    )
     ap.add_argument("--show-knowledge", action="store_true")
     ap.add_argument("--self-test", action="store_true")
     return ap.parse_args()
@@ -2115,8 +2156,16 @@ def main() -> int:
     if args.max_attempts < 1 or args.max_attempts > 5:
         print("max-attempts must be in 1..5", file=sys.stderr)
         return 2
+    if args.upload_seed and args.goal != "converge":
+        print("--upload-seed is valid only with --goal converge", file=sys.stderr)
+        return 2
 
-    auto = Autopilot(args.root, args.goal, args.max_attempts)
+    auto = Autopilot(
+        args.root,
+        args.goal,
+        args.max_attempts,
+        upload_seed=args.upload_seed,
+    )
     try:
         if args.show_knowledge:
             auto.preflight()
