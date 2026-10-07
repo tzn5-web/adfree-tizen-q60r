@@ -67,6 +67,8 @@ jobs:
             tb8504-build/scripts/audit-residual-contracts.py \
             tb8504-build/scripts/apply-product-compat.py \
             tb8504-build/scripts/audit-product-compat.py \
+            tb8504-build/scripts/apply-performance-compat.py \
+            tb8504-build/scripts/audit-performance-compat.py \
             tb8504-build/scripts/apply-residual-cleanup.py \
             tb8504-build/scripts/audit-residual-contracts.py \
             tb8504-build/scripts/apply-product-compat.py \
@@ -79,6 +81,8 @@ jobs:
             tb8504-build/scripts/audit-residual-contracts.py \
             tb8504-build/scripts/apply-product-compat.py \
             tb8504-build/scripts/audit-product-compat.py \
+            tb8504-build/scripts/apply-performance-compat.py \
+            tb8504-build/scripts/audit-performance-compat.py \
             tb8504-build/config/stage8n.env
           ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' \
             tb8504-build/scripts/audit-stage8n.py \
@@ -274,6 +278,46 @@ jobs:
           echo "PRODUCT_COMPAT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
 
+      - name: Apply Android 16 low-end graphics compatibility
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/apply-performance-compat.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --patch-out /tmp/tb8504-stage8n/report/performance-compat.patch \
+            --report-out /tmp/tb8504-stage8n/report/performance-compat.txt \
+            2>&1 | tee /tmp/tb8504-stage8n/report/performance-compat.log
+          RC=${PIPESTATUS[0]}
+          echo "PERFORMANCE_COMPAT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
+          exit "$RC"
+
+      - name: Verify performance compatibility idempotency
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/apply-performance-compat.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --patch-out /tmp/tb8504-stage8n/report/performance-compat-second.patch \
+            --report-out /tmp/tb8504-stage8n/report/performance-compat-second.txt \
+            2>&1 | tee /tmp/tb8504-stage8n/report/performance-compat-second.log
+          RC=${PIPESTATUS[0]}
+          [ "$RC" -eq 0 ] || exit "$RC"
+          grep -Fx 'PERFORMANCE_COMPAT_STATE=ALREADY_APPLIED' /tmp/tb8504-stage8n/report/performance-compat-second.txt
+          grep -Fx 'CHANGED_FILES=0' /tmp/tb8504-stage8n/report/performance-compat-second.txt
+          test ! -s /tmp/tb8504-stage8n/report/performance-compat-second.patch
+          echo "PERFORMANCE_COMPAT_IDEMPOTENCY=PASS" >> /tmp/tb8504-stage8n/report/STATUS.txt
+
+      - name: Audit Android 16 low-end graphics contract
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/audit-performance-compat.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            2>&1 | tee /tmp/tb8504-stage8n/report/performance-compat-audit.log
+          RC=${PIPESTATUS[0]}
+          echo "PERFORMANCE_COMPAT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
+          exit "$RC"
+
       - name: Prove residual cleanup idempotence
         shell: bash
         run: |
@@ -327,8 +371,8 @@ jobs:
             --vendor /tmp/tb8504-stage8n/reconstructed/vendor \
             --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
             --report-dir /tmp/tb8504-stage8n/report \
-            --module-info /tmp/tb8504-stage8n/reconstructed/module-info.json \
             2>&1 | tee /tmp/tb8504-stage8n/report/runtime-contracts.log
+          echo "RUNTIME_MODULE_INFO_MODE=SOURCE_ONLY" | tee -a /tmp/tb8504-stage8n/report/STATUS.txt
           RC=${PIPESTATUS[0]}
           echo "RUNTIME_CONTRACT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
@@ -369,6 +413,12 @@ jobs:
             echo '## Android 16 product compatibility audit' >> "$GITHUB_STEP_SUMMARY"
             echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
             cat /tmp/tb8504-stage8n/report/product-compat-audit.log >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f /tmp/tb8504-stage8n/report/performance-compat-audit.log ]; then
+            echo '## Android 16 low-end graphics audit' >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/tb8504-stage8n/report/performance-compat-audit.log >> "$GITHUB_STEP_SUMMARY"
             echo '~~~' >> "$GITHUB_STEP_SUMMARY"
           fi
 
