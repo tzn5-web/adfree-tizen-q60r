@@ -133,19 +133,30 @@ def parse_vendor_copy_entries(vmk: Path) -> list[tuple[str,str]]:
         entries.append((src,dst.split("$(TARGET_COPY_OUT_VENDOR)/",1)[1]))
     return entries
 
-def choose_vendor_root(out: Path) -> Path:
-    if (out/"vendor").is_dir():
-        return out/"vendor"
-    if (out/"system/vendor").is_dir():
-        return out/"system/vendor"
-    fail("no installed vendor root found in built output")
+def choose_vendor_root(out: Path, entries: list[tuple[str,str]]) -> Path:
+    candidates=[
+        p for p in (out/"vendor", out/"system/vendor") if p.is_dir()
+    ]
+    if not candidates:
+        fail("no installed vendor root found in built output")
+    scored=[]
+    for candidate in candidates:
+        score=sum(1 for _,dst_rel in entries if (candidate/dst_rel).exists())
+        scored.append((score,candidate))
+    scored.sort(key=lambda x:x[0], reverse=True)
+    print("VENDOR_ROOT_CANDIDATES=" + ",".join(
+        f"{p}:{score}" for score,p in scored
+    ))
+    if scored[0][0] == 0:
+        fail("no vendor root candidate contains generated copy destinations")
+    return scored[0][1]
 
 def audit_vendor_copy(root: Path, out: Path) -> None:
     vmk=root/"vendor/lenovo/TB8504/TB8504-vendor.mk"
     if not vmk.is_file():
         fail("TB8504-vendor.mk missing")
-    vendor_root=choose_vendor_root(out)
     entries=parse_vendor_copy_entries(vmk)
+    vendor_root=choose_vendor_root(out,entries)
     if len(entries) < 100:
         fail(f"unexpectedly few vendor copy entries: {len(entries)}")
     missing=[]
@@ -334,12 +345,14 @@ def audit_system_image(out: Path) -> None:
     p=out/"system.img"
     if not p.is_file() or p.stat().st_size<=0:
         fail("system.img missing/empty")
-    data=p.read_bytes()
-    expanded=len(data)
+    stored=p.stat().st_size
+    with p.open("rb") as f:
+        header=f.read(28)
+    expanded=stored
     sparse=False
-    if len(data)>=28 and struct.unpack_from("<I",data,0)[0]==0xED26FF3A:
+    if len(header)>=28 and struct.unpack_from("<I",header,0)[0]==0xED26FF3A:
         sparse=True
-        vals=struct.unpack_from("<I4H4I",data,0)
+        vals=struct.unpack_from("<I4H4I",header,0)
         blk_sz=vals[5]; total_blks=vals[6]
         if vals[1]!=1 or blk_sz<=0:
             fail("invalid sparse system.img header")
@@ -348,9 +361,9 @@ def audit_system_image(out: Path) -> None:
     if expanded>limit:
         fail(f"system.img expanded size exceeds partition: {expanded}>{limit}")
     print(f"SYSTEM_IMAGE_SPARSE={'YES' if sparse else 'NO'}")
-    print(f"SYSTEM_IMAGE_STORED_SIZE={len(data)}")
+    print(f"SYSTEM_IMAGE_STORED_SIZE={stored}")
     print(f"SYSTEM_IMAGE_EXPANDED_SIZE={expanded}")
-    print(f"SYSTEM_IMAGE_SHA256={hashlib.sha256(data).hexdigest()}")
+    print(f"SYSTEM_IMAGE_SHA256={sha(p)}")
     print("SYSTEM_IMAGE_SIZE_CONTRACT=PASS")
 
 def audit_policy(out: Path) -> None:
