@@ -308,6 +308,230 @@ class Autopilot:
     def git_status(self, repo: Path) -> str:
         return self.capture(["git", "status", "--short"], cwd=repo, check=False)
 
+    def git_raw(self, repo: Path, args: list[str]) -> bytes:
+        printable = "git " + " ".join(args)
+        self.safety_check_command(printable)
+        p = subprocess.run(
+            ["git", *args],
+            cwd=str(repo),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if p.returncode != 0:
+            raise StopAutopilot(
+                f"COMMAND_FAILED rc={p.returncode}: {printable}\n"
+                + p.stderr.decode("utf-8", "replace")
+            )
+        return p.stdout
+
+    def git_diff_sha256(self, repo: Path) -> str:
+        return hashlib.sha256(self.git_raw(repo, ["diff", "--binary", "HEAD"])).hexdigest()
+
+    def git_untracked(self, repo: Path) -> list[str]:
+        raw = self.git_raw(
+            repo, ["ls-files", "--others", "--exclude-standard", "-z"]
+        )
+        return sorted(
+            x for x in raw.decode("utf-8", "surrogateescape").split("\0") if x
+        )
+
+    def hash_untracked(self, repo: Path, h: "hashlib._Hash") -> None:
+        for rel in self.git_untracked(repo):
+            p = repo / rel
+            h.update(b"U\0" + rel.encode("utf-8", "surrogateescape") + b"\0")
+            if p.is_symlink():
+                h.update(b"L\0" + os.readlink(p).encode("utf-8", "surrogateescape"))
+            elif p.is_file():
+                with p.open("rb") as f:
+                    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                        h.update(chunk)
+            else:
+                h.update(b"O")
+
+    def hash_plain_tree(self, root: Path) -> str:
+        h = hashlib.sha256()
+        if not root.is_dir():
+            raise StopAutopilot(f"source directory missing: {root}")
+        for p in sorted(root.rglob("*"), key=lambda x: x.as_posix()):
+            rel = p.relative_to(root).as_posix()
+            if "/.git/" in f"/{rel}/" or rel == ".git":
+                continue
+            h.update(rel.encode("utf-8", "surrogateescape") + b"\0")
+            if p.is_symlink():
+                h.update(b"L\0" + os.readlink(p).encode("utf-8", "surrogateescape"))
+            elif p.is_file():
+                with p.open("rb") as f:
+                    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                        h.update(chunk)
+        return h.hexdigest()
+
+    def verify_extended_source_contracts(self) -> None:
+        contracts = self.knowledge.get("source_integrity_contracts", {})
+        static = contracts.get("static_target_repos", {})
+        if not isinstance(static, dict) or not static:
+            raise StopAutopilot("source integrity contract set missing/empty")
+
+        for rel, spec in sorted(static.items()):
+            repo = self.root / rel
+            if not repo.is_dir():
+                raise StopAutopilot(f"required source repo missing: {rel}")
+            inside = self.capture(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                cwd=repo,
+                check=False,
+            )
+            if inside != "true":
+                raise StopAutopilot(f"required source path is not a git worktree: {rel}")
+            head = self.capture(["git", "rev-parse", "HEAD"], cwd=repo)
+            wanted_head = str(spec.get("head", ""))
+            if head != wanted_head:
+                raise StopAutopilot(
+                    f"source HEAD mismatch {rel}: {head} != {wanted_head}"
+                )
+            patch_sha = self.git_diff_sha256(repo)
+            wanted_patch = str(spec.get("patch_sha256", ""))
+            if patch_sha != wanted_patch:
+                raise StopAutopilot(
+                    f"source patch mismatch {rel}: {patch_sha} != {wanted_patch}"
+                )
+            untracked = self.git_untracked(repo)
+            if untracked:
+                raise StopAutopilot(
+                    f"unexpected untracked files in fixed source repo {rel}: "
+                    f"{untracked[:30]}"
+                )
+            self.say(f"SOURCE_CONTRACT[{rel}]=PASS")
+
+        host = contracts.get("host_only_repo", {})
+        if isinstance(host, dict) and host:
+            rel = str(host.get("path", ""))
+            repo = self.root / rel
+            if not repo.is_dir():
+                raise StopAutopilot(f"host-only source repo missing: {rel}")
+            head = self.capture(["git", "rev-parse", "HEAD"], cwd=repo)
+            if head != str(host.get("head", "")):
+                raise StopAutopilot(f"host-only repo HEAD mismatch: {rel} {head}")
+            prefix = str(host.get("allowed_dirty_prefix", ""))
+            bad = []
+            for raw in self.git_status(repo).splitlines():
+                if not raw.strip():
+                    continue
+                path = raw[3:].strip()
+                if " -> " in path:
+                    path = path.split(" -> ", 1)[1]
+                if not path.startswith(prefix):
+                    bad.append(raw)
+            if bad:
+                raise StopAutopilot(
+                    f"host-only repo has target-relevant dirty paths: {bad[:30]}"
+                )
+            self.say(f"HOST_ONLY_DIRTY_SCOPE[{rel}]=PASS")
+
+        gps_rel = str(
+            contracts.get(
+                "required_unproven_repo", "hardware/qcom-caf/msm8996/gps"
+            )
+        )
+        gps = self.root / gps_rel
+        gps_report: dict[str, object] = {
+            "path": gps_rel,
+            "exists": gps.exists(),
+            "is_dir": gps.is_dir(),
+        }
+        gps_contract = contracts.get("gps_repo")
+        if gps.is_dir():
+            inside = self.capture(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                cwd=gps,
+                check=False,
+            )
+            gps_report["git_worktree"] = inside == "true"
+            if inside == "true":
+                gps_head = self.capture(["git", "rev-parse", "HEAD"], cwd=gps)
+                gps_status = self.git_status(gps)
+                gps_report["head"] = gps_head
+                gps_report["status"] = gps_status.splitlines()
+                gps_report["patch_sha256"] = self.git_diff_sha256(gps)
+                gps_report["untracked"] = self.git_untracked(gps)
+                if isinstance(gps_contract, dict) and gps_contract:
+                    if gps_head != str(gps_contract.get("head", "")):
+                        raise StopAutopilot(
+                            f"GPS source HEAD mismatch: {gps_head} != "
+                            f"{gps_contract.get('head', '')}"
+                        )
+                    if gps_report["patch_sha256"] != str(
+                        gps_contract.get("patch_sha256", "")
+                    ):
+                        raise StopAutopilot("GPS source patch fingerprint mismatch")
+                    if gps_report["untracked"]:
+                        raise StopAutopilot(
+                            f"GPS repo has unexpected untracked files: "
+                            f"{gps_report['untracked'][:30]}"
+                        )
+                    self.say("GPS_SOURCE_CONTRACT=PASS")
+                else:
+                    self.unproven_sources.append(gps_rel)
+            else:
+                gps_report["tree_sha256"] = self.hash_plain_tree(gps)
+                self.unproven_sources.append(gps_rel)
+        else:
+            self.unproven_sources.append(gps_rel)
+
+        (self.report / "gps-source-state.json").write_text(
+            json.dumps(gps_report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        if self.unproven_sources:
+            self.say(
+                "UNPROVEN_SOURCE_REPOS=" + ",".join(sorted(set(self.unproven_sources)))
+            )
+            if self.goal != "converge":
+                raise StopAutopilot(
+                    "build goal refused until all required source repos have "
+                    "an explicit integrity contract"
+                )
+            self.say("SOURCE_PROVENANCE=PARTIAL_CONVERGE_ONLY")
+        else:
+            self.say("SOURCE_PROVENANCE=PASS")
+
+    def compute_source_fingerprint(self) -> str:
+        contracts = self.knowledge.get("source_integrity_contracts", {})
+        rels = set(EXPECTED_HEADS)
+        rels.update(contracts.get("static_target_repos", {}).keys())
+        gps_rel = str(
+            contracts.get(
+                "required_unproven_repo", "hardware/qcom-caf/msm8996/gps"
+            )
+        )
+        rels.add(gps_rel)
+
+        h = hashlib.sha256()
+        for rel in sorted(rels):
+            repo = self.root / rel
+            h.update(rel.encode("utf-8") + b"\0")
+            if repo.is_dir():
+                inside = self.capture(
+                    ["git", "rev-parse", "--is-inside-work-tree"],
+                    cwd=repo,
+                    check=False,
+                )
+            else:
+                inside = ""
+            if inside == "true":
+                head = self.capture(["git", "rev-parse", "HEAD"], cwd=repo)
+                h.update(b"G\0" + head.encode("ascii") + b"\0")
+                h.update(self.git_raw(repo, ["diff", "--binary", "HEAD"]))
+                self.hash_untracked(repo, h)
+            elif repo.is_dir():
+                h.update(b"T\0" + self.hash_plain_tree(repo).encode("ascii"))
+            else:
+                h.update(b"MISSING")
+        digest = h.hexdigest()
+        self.say(f"SOURCE_FINGERPRINT={digest}")
+        return digest
+
     def snapshot_sources(self, label: str) -> None:
         for name, repo in (("device", self.device), ("vendor", self.vendor), ("kernel", self.kernel)):
             status = self.capture(["git", "status", "--short"], cwd=repo, check=False)
@@ -339,6 +563,8 @@ class Autopilot:
             self.say("KERNEL_DIRTY_STATE=KNOWN_BUILD_ONLY")
         else:
             self.say("KERNEL_DIRTY_STATE=CLEAN")
+
+        self.verify_extended_source_contracts()
         self.say("SOURCE_HEAD_GATE=PASS")
 
     @staticmethod
