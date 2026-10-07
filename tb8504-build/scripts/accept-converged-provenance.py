@@ -69,6 +69,69 @@ def patch_member(rel: str) -> str:
     return "patches/" + rel.replace("/", "__") + ".patch"
 
 
+def verify_untracked_seed(
+    z: zipfile.ZipFile, repo: str, provenance: dict
+) -> None:
+    rows = provenance.get("untracked")
+    recorded = str(provenance.get("untracked_manifest_sha256", ""))
+    if not isinstance(rows, list):
+        die(f"untracked provenance list missing: {repo}")
+    if not re.fullmatch(r"[0-9a-f]{64}", recorded):
+        die(f"untracked provenance fingerprint invalid: {repo}")
+
+    names = set(z.namelist())
+    prefix = f"untracked/{repo}/"
+    expected: set[str] = set()
+    seen: set[str] = set()
+    h = hashlib.sha256()
+    for row in sorted(rows, key=lambda x: str(x.get("path", "")) if isinstance(x, dict) else ""):
+        if not isinstance(row, dict):
+            die(f"untracked provenance row invalid: {repo}")
+        rel = str(row.get("path", ""))
+        parts = Path(rel).parts
+        if not rel or rel in seen or Path(rel).is_absolute() or ".." in parts:
+            die(f"untracked provenance path invalid/duplicate: {repo}:{rel!r}")
+        seen.add(rel)
+        h.update(rel.encode("utf-8", "surrogateescape") + b"\0")
+
+        kind = str(row.get("type", ""))
+        if kind != "file":
+            die(f"unsupported untracked provenance type: {repo}:{rel}:{kind}")
+        size = row.get("size")
+        digest = str(row.get("sha256", ""))
+        if not isinstance(size, int) or size < 0:
+            die(f"untracked file size invalid: {repo}:{rel}")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            die(f"untracked file digest invalid: {repo}:{rel}")
+
+        member = prefix + rel
+        if member not in names:
+            die(f"untracked file missing from seed: {repo}:{rel}")
+        data = z.read(member)
+        if len(data) != size or sha256_bytes(data) != digest:
+            die(f"untracked file content mismatch: {repo}:{rel}")
+        expected.add(member)
+        h.update(
+            b"F\0"
+            + str(size).encode("ascii")
+            + b"\0"
+            + digest.encode("ascii")
+        )
+
+    actual = {
+        name for name in names
+        if name.startswith(prefix) and not name.endswith("/")
+    }
+    if actual != expected:
+        die(
+            f"untracked seed coverage mismatch {repo}: "
+            f"missing={sorted(expected-actual)[:20]} "
+            f"extra={sorted(actual-expected)[:20]}"
+        )
+    if h.hexdigest() != recorded:
+        die(f"untracked manifest fingerprint mismatch: {repo}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", required=True, type=Path)
@@ -145,6 +208,7 @@ def main() -> int:
                 die(f"primary patch member missing: {member}")
             if actual_patch_sha != patch_sha:
                 die(f"primary patch fingerprint disagrees with seed: {rel}")
+            verify_untracked_seed(z, rel, row)
 
         if gps.get("path") != GPS_PATH:
             die("GPS provenance path mismatch")
@@ -165,6 +229,7 @@ def main() -> int:
                 die("GPS patch member missing")
             if actual_patch_sha != patch_sha:
                 die("GPS patch fingerprint disagrees with seed")
+            verify_untracked_seed(z, GPS_PATH, gps)
             gps_contract = {
                 "mode": "git",
                 "head": head,
