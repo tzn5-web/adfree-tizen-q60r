@@ -354,6 +354,20 @@
       "allowed_dirty_prefix": "windows-x86/"
     },
     "required_unproven_repo": "hardware/qcom-caf/msm8996/gps",
-    "policy": "converge may collect an unproven repo state; any build goal must stop until the repo is captured and an explicit contract is added"
+    "policy": "converge may collect an unproven GPS or dynamic-primary state; every build goal must stop until GPS and post-convergence device/vendor integrity contracts are explicit",
+    "dynamic_primary_repos": {
+      "device/lenovo/TB8504": {
+        "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
+        "post_converge_patch_sha256": null,
+        "post_converge_untracked_manifest_sha256": null,
+        "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE"
+      },
+      "vendor/lenovo/TB8504": {
+        "head": "34690afc7eff4fc5223f4f2882c2054fcddcf986",
+        "post_converge_patch_sha256": null,
+        "post_converge_untracked_manifest_sha256": null,
+        "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE"
+      }
+    }
   }
 }
