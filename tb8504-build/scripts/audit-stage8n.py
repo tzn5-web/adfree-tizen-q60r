@@ -25,9 +25,11 @@ from pathlib import Path
 COPY_RE = re.compile(r"^\s*(vendor/lenovo/TB8504/proprietary/[^:]+):([^\s\\]+)")
 LOCAL_MODULE_RE = re.compile(r"^\s*LOCAL_MODULE\s*:?=\s*([^\s\\#]+)", re.M)
 LOCAL_MULTILIB_RE = re.compile(r"^\s*LOCAL_MULTILIB\s*:?=\s*([^\s\\#]+)", re.M)
-LOCAL_32_RE = re.compile(r"^\s*LOCAL_32_BIT_ONLY\s*:?=\s*true\b", re.M)
-LOCAL_64_RE = re.compile(r"^\s*LOCAL_64_BIT_ONLY\s*:?=\s*true\b", re.M)
+LOCAL_32_VALUE_RE = re.compile(r"^\s*LOCAL_32_BIT_ONLY\s*:?=\s*([^\s\\#]+)", re.M)
+LOCAL_64_VALUE_RE = re.compile(r"^\s*LOCAL_64_BIT_ONLY\s*:?=\s*([^\s\\#]+)", re.M)
 LOCAL_ARCH_RE = re.compile(r"^\s*LOCAL_MODULE_TARGET_ARCH\s*:?=\s*([^\n#]+)", re.M)
+MAKE_VAR_RE = re.compile(r"^\s*([A-Za-z0-9_]+)\s*:?=\s*([^#\\]+?)\s*$", re.M)
+MAKE_REF_RE = re.compile(r"^\$\(([A-Za-z0-9_]+)\)$")
 BP_NAME_RE = re.compile(r'\bname\s*:\s*"([^"]+)"')
 BP_MULTILIB_RE = re.compile(r'\bcompile_multilib\s*:\s*"([^"]+)"')
 NEEDED_RE = re.compile(r"\(NEEDED\).*\[([^\]]+)\]")
@@ -133,14 +135,41 @@ def installed_entries(vendor_root: Path) -> list[dict[str, str]]:
     return result
 
 
-def mk_module_bits(block: str) -> set[int]:
-    if LOCAL_32_RE.search(block):
+def make_variables(device_root: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for path in sorted(device_root.rglob("*.mk")):
+        text = path.read_text("utf-8", errors="replace")
+        for match in MAKE_VAR_RE.finditer(text):
+            values[match.group(1)] = match.group(2).strip()
+    return values
+
+
+def resolve_make_value(value: str, variables: dict[str, str]) -> str:
+    seen: set[str] = set()
+    current = value.strip()
+    while True:
+        ref = MAKE_REF_RE.fullmatch(current)
+        if not ref:
+            return current
+        key = ref.group(1)
+        if key in seen or key not in variables:
+            return current
+        seen.add(key)
+        current = variables[key].strip()
+
+
+def mk_module_bits(block: str, variables: dict[str, str]) -> set[int]:
+    bit32 = LOCAL_32_VALUE_RE.search(block)
+    if bit32 and resolve_make_value(bit32.group(1), variables).lower() == "true":
         return {32}
-    if LOCAL_64_RE.search(block):
+
+    bit64 = LOCAL_64_VALUE_RE.search(block)
+    if bit64 and resolve_make_value(bit64.group(1), variables).lower() == "true":
         return {64}
+
     arch = LOCAL_ARCH_RE.search(block)
     if arch:
-        words = arch.group(1).split()
+        words = resolve_make_value(arch.group(1).strip(), variables).split()
         bits: set[int] = set()
         if "arm" in words:
             bits.add(32)
@@ -148,11 +177,14 @@ def mk_module_bits(block: str) -> set[int]:
             bits.add(64)
         if bits:
             return bits
+
     multi = LOCAL_MULTILIB_RE.search(block)
     if multi:
+        value = resolve_make_value(multi.group(1), variables)
         return {
             "both": {32, 64}, "32": {32}, "64": {64}, "first": {64},
-        }.get(multi.group(1), {64})
+        }.get(value, {64})
+
     return {64}
 
 
@@ -162,7 +194,9 @@ def add_module_variant(out: dict[str, set[int]], name: str, bits: set[int]) -> N
         out.setdefault(name + ".so", set()).update(bits)
 
 
-def local_source_modules(device_root: Path) -> dict[str, set[int]]:
+def local_source_modules(
+    device_root: Path, variables: dict[str, str]
+) -> dict[str, set[int]]:
     modules: dict[str, set[int]] = {}
     clear_vars = "include $(CLEAR_VARS)"
     for path in device_root.rglob("Android.mk"):
@@ -170,7 +204,9 @@ def local_source_modules(device_root: Path) -> dict[str, set[int]]:
         for block in text.split(clear_vars)[1:]:
             m = LOCAL_MODULE_RE.search(block)
             if m:
-                add_module_variant(modules, m.group(1), mk_module_bits(block))
+                add_module_variant(
+                    modules, m.group(1), mk_module_bits(block, variables)
+                )
 
     for path in device_root.rglob("Android.bp"):
         text = path.read_text("utf-8", errors="replace")
@@ -218,13 +254,46 @@ def product_packages(device_root: Path) -> dict[str, set[int]]:
     return packages
 
 
+def vendor_prebuilt_modules(
+    vendor_root: Path, selected_packages: dict[str, set[int]]
+) -> dict[str, set[int]]:
+    modules: dict[str, set[int]] = {}
+    bp = vendor_root / "Android.bp"
+    if not bp.is_file():
+        return modules
+
+    text = bp.read_text("utf-8", errors="replace")
+    for match in re.finditer(
+        r"cc_prebuilt_library_shared\s*\{(.*?)\n\}", text, re.S
+    ):
+        body = match.group(1)
+        name_match = BP_NAME_RE.search(body)
+        if not name_match:
+            continue
+        name = name_match.group(1)
+        if name not in selected_packages and f"{name}.so" not in selected_packages:
+            continue
+
+        mm = BP_MULTILIB_RE.search(body)
+        value = mm.group(1) if mm else "both"
+        bits = {
+            "both": {32, 64}, "32": {32}, "64": {64}, "first": {64},
+        }.get(value, {32, 64})
+        add_module_variant(modules, name, bits)
+
+    return modules
+
+
 def external_provider_bits(
     name: str,
     local_modules: dict[str, set[int]],
     packages: dict[str, set[int]],
+    vendor_prebuilts: dict[str, set[int]],
 ) -> tuple[set[int], str | None]:
     if name in local_modules:
         return local_modules[name], "device-source"
+    if name in vendor_prebuilts:
+        return vendor_prebuilts[name], "vendor-prebuilt"
     if name in PINNED_EXTERNAL_SOURCE_BITS:
         return PINNED_EXTERNAL_SOURCE_BITS[name], "pinned-source"
     if name in packages:
@@ -249,8 +318,11 @@ def main() -> int:
         fail("vendor/device root missing")
 
     entries = installed_entries(vendor_root)
-    local_modules = local_source_modules(device_root)
+    variables = make_variables(device_root)
+    local_modules = local_source_modules(device_root, variables)
     packages = product_packages(device_root)
+    vendor_packages = product_packages(vendor_root)
+    vendor_prebuilts = vendor_prebuilt_modules(vendor_root, vendor_packages)
 
     missing_sources: list[str] = []
     elfs: list[dict[str, object]] = []
@@ -317,7 +389,7 @@ def main() -> int:
                     status, detail = "wrong-bitness", ",".join(other)
                 else:
                     ext_bits, kind = external_provider_bits(
-                        need, local_modules, packages
+                        need, local_modules, packages, vendor_prebuilts
                     )
                     if bits in ext_bits:
                         resolved_external += 1
@@ -358,6 +430,9 @@ def main() -> int:
         "elf64_files": sum(1 for x in elfs if x["bits"] == 64),
         "local_source_module_names": len(local_modules),
         "product_package_names": len(packages),
+        "vendor_package_names": len(vendor_packages),
+        "vendor_prebuilt_module_names": len(vendor_prebuilts),
+        "make_variable_names": len(variables),
         "dt_needed_edges": total_edges,
         "resolved_private_edges": resolved_private,
         "resolved_external_edges": resolved_external,
@@ -373,6 +448,9 @@ def main() -> int:
 
     serial_local = {k: sorted(v) for k, v in sorted(local_modules.items())}
     serial_packages = {k: sorted(v) for k, v in sorted(packages.items())}
+    serial_vendor_prebuilts = {
+        k: sorted(v) for k, v in sorted(vendor_prebuilts.items())
+    }
     (report_dir / "stage8n.json").write_text(
         json.dumps({
             "summary": summary,
@@ -380,6 +458,7 @@ def main() -> int:
             "wrong_bitness": wrong_by_lib,
             "local_source_modules": serial_local,
             "product_packages": serial_packages,
+            "vendor_prebuilts": serial_vendor_prebuilts,
             "gnss_edges": gnss_edges,
         }, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
