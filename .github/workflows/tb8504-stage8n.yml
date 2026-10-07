@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Read triggering STAGE8N request
         shell: bash
@@ -42,7 +42,6 @@ jobs:
           fi
           REQUEST="${REQUESTS[0]}"
           if grep -Ev '^(SEED_RELEASE_TAG|SEED_ZIP_SHA256|TOOLING_REF)=[A-Za-z0-9._:-]+
-
       - name: Static safety audit
         shell: bash
         run: |
@@ -427,26 +426,29 @@ jobs:
             exit 3
           fi
           source "$REQUEST"
-          if [ -z "${SEED_RELEASE_TAG:-}" ]; then
-            echo "Missing seed release tag" >&2
+          if [ -z "${SEED_RELEASE_TAG:-}" ] || ! [[ "${SEED_ZIP_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || ! [[ "${TOOLING_REF:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid seed request metadata" >&2
             exit 4
           fi
-          if ! [[ "${SEED_ZIP_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "Invalid seed SHA256" >&2
+          git cat-file -e "$TOOLING_REF^{commit}" || {
+            echo "Requested tooling ref is not present in repository history: $TOOLING_REF" >&2
             exit 4
-          fi
-          if ! [[ "${TOOLING_REF:-}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Invalid tooling ref" >&2
-            exit 4
-          fi
-          REQUEST_PARENT="$(git rev-parse "$GITHUB_SHA^")"
-          if [ "$REQUEST_PARENT" != "$TOOLING_REF" ]; then
-            echo "STAGE8N request parent/tooling mismatch: $REQUEST_PARENT != $TOOLING_REF" >&2
+          }
+          if ! git merge-base --is-ancestor "$TOOLING_REF" "$GITHUB_SHA"; then
+            echo "Requested tooling ref is not an ancestor of the request commit" >&2
             exit 4
           fi
           echo "SEED_RELEASE_TAG=$SEED_RELEASE_TAG" >> "$GITHUB_ENV"
           echo "EXPECTED_SEED_ZIP_SHA256=$SEED_ZIP_SHA256" >> "$GITHUB_ENV"
           echo "EXPECTED_TOOLING_REF=$TOOLING_REF" >> "$GITHUB_ENV"
+
+      - name: Checkout pinned exporter tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "$EXPECTED_TOOLING_REF"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_TOOLING_REF"
+          echo "PINNED_TOOLING_CHECKOUT=PASS"
 
       - name: Static safety audit
         shell: bash
