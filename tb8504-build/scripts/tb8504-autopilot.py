@@ -2027,6 +2027,20 @@ def static_self_test() -> None:
     for guard in required_guards:
         if guard not in source_text and guard not in json.dumps(knowledge):
             raise RuntimeError(f"required autopilot guard missing: {guard}")
+
+    built_output_text = (
+        repo_root / "tb8504-build/scripts/audit-built-output.py"
+    ).read_text("utf-8", errors="replace")
+    for guard in (
+        "ACTUAL_VENDOR_ELF_SCOPE=ALL_INSTALLED_VENDOR_ELFS",
+        'for p in vendor_root.rglob("*")',
+        "ACTUAL_OUTPUT_UNRESOLVED_EDGES",
+        "ACTUAL_OUTPUT_WRONG_BITNESS_EDGES",
+    ):
+        if guard not in built_output_text:
+            raise RuntimeError(
+                f"required installed-output ELF audit guard missing: {guard}"
+            )
     print("AUTOPILOT_SELF_TEST=PASS")
     print(f"KNOWLEDGE_PROBLEMS={len(knowledge.get('known_build_failures_and_fixes', []))}")
     print(f"RECOVERY_BASELINE_SHA256={KNOWN_RECOVERY_SHA256}")
