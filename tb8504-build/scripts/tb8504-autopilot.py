@@ -109,6 +109,7 @@ class Autopilot:
         self.release_info: dict[str, str] = {}
         self.source_changed = False
         self.current_source_fingerprint = ""
+        self.workspace_revision_fingerprint = ""
         self.unproven_sources: list[str] = []
         self.handler_uses: dict[str, int] = {}
         self.state_path = self.product_out / ".tb8504-autopilot-state.json"
@@ -391,6 +392,114 @@ class Autopilot:
                         h.update(chunk)
         return h.hexdigest()
 
+    def audit_workspace_repo_state(self) -> None:
+        repo_bin = self.root / ".repo/repo/repo"
+        if not repo_bin.is_file():
+            raise StopAutopilot(f"repo launcher missing: {repo_bin}")
+
+        listing = self.capture([str(repo_bin), "list", "-p"], cwd=self.root)
+        projects = sorted(
+            {line.strip() for line in listing.splitlines() if line.strip()}
+        )
+        if not projects:
+            raise StopAutopilot("repo project list is empty")
+
+        contracts = self.knowledge.get("source_integrity_contracts", {})
+        allowed_dirty = set(EXPECTED_HEADS)
+        allowed_dirty.update(contracts.get("static_target_repos", {}).keys())
+        dynamic = contracts.get("dynamic_primary_repos", {})
+        if isinstance(dynamic, dict):
+            allowed_dirty.update(dynamic.keys())
+        host = contracts.get("host_only_repo", {})
+        if isinstance(host, dict) and host.get("path"):
+            allowed_dirty.add(str(host["path"]))
+        gps_rel = str(
+            contracts.get(
+                "required_unproven_repo", "hardware/qcom-caf/msm8996/gps"
+            )
+        )
+        allowed_dirty.add(gps_rel)
+
+        h = hashlib.sha256()
+        rows: list[dict[str, object]] = []
+        unexpected_dirty: list[dict[str, object]] = []
+        for rel in projects:
+            project = self.root / rel
+            inside = self.capture(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                cwd=project,
+                check=False,
+            )
+            if inside != "true":
+                raise StopAutopilot(f"repo project is not a git worktree: {rel}")
+            head = self.capture(["git", "rev-parse", "HEAD"], cwd=project)
+            if not re.fullmatch(r"[0-9a-f]{40}", head):
+                raise StopAutopilot(f"invalid project HEAD {rel}: {head!r}")
+            h.update(rel.encode("utf-8", "surrogateescape") + b"\0")
+            h.update(head.encode("ascii") + b"\0")
+            status = self.git_status(project)
+            dirty = bool(status)
+            rows.append({"path": rel, "head": head, "dirty": dirty})
+            if dirty and rel not in allowed_dirty:
+                unexpected_dirty.append(
+                    {
+                        "path": rel,
+                        "status": status.splitlines()[:100],
+                    }
+                )
+
+        digest = h.hexdigest()
+        self.workspace_revision_fingerprint = digest
+        report = {
+            "project_count": len(projects),
+            "revision_fingerprint": digest,
+            "allowed_dirty_repos": sorted(allowed_dirty),
+            "unexpected_dirty_repos": unexpected_dirty,
+            "projects": rows,
+        }
+        (self.report / "workspace-source-state.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        self.say(f"WORKSPACE_PROJECT_COUNT={len(projects)}")
+        self.say(f"WORKSPACE_REVISION_FINGERPRINT={digest}")
+        self.say(f"WORKSPACE_UNEXPECTED_DIRTY={len(unexpected_dirty)}")
+        if unexpected_dirty:
+            raise StopAutopilot(
+                "unexpected dirty repos outside source model: "
+                + ",".join(str(x["path"]) for x in unexpected_dirty[:30])
+            )
+
+        workspace_contract = contracts.get("workspace_repo_contract", {})
+        wanted = (
+            workspace_contract.get("revision_fingerprint")
+            if isinstance(workspace_contract, dict)
+            else None
+        )
+        wanted_count = (
+            workspace_contract.get("expected_project_count")
+            if isinstance(workspace_contract, dict)
+            else None
+        )
+        if wanted and digest != wanted:
+            raise StopAutopilot(
+                f"workspace revision fingerprint mismatch: {digest} != {wanted}"
+            )
+        if wanted_count is not None and int(wanted_count) != len(projects):
+            raise StopAutopilot(
+                f"workspace project count mismatch: {len(projects)} != "
+                f"{wanted_count}"
+            )
+        if not wanted or wanted_count is None:
+            if self.goal != "converge":
+                raise StopAutopilot(
+                    "build goal refused until full workspace revision baseline "
+                    "is explicitly approved"
+                )
+            self.say("WORKSPACE_PROVENANCE=PARTIAL_CONVERGE_ONLY")
+        else:
+            self.say("WORKSPACE_PROVENANCE=PASS")
+
     def verify_extended_source_contracts(self) -> None:
         contracts = self.knowledge.get("source_integrity_contracts", {})
         static = contracts.get("static_target_repos", {})
@@ -616,6 +725,13 @@ class Autopilot:
         rels.add(gps_rel)
 
         h = hashlib.sha256()
+        if not self.workspace_revision_fingerprint:
+            raise StopAutopilot("workspace revision fingerprint missing")
+        h.update(
+            b"WORKSPACE\0"
+            + self.workspace_revision_fingerprint.encode("ascii")
+            + b"\0"
+        )
         for rel in sorted(rels):
             repo = self.root / rel
             h.update(rel.encode("utf-8") + b"\0")
@@ -674,6 +790,7 @@ class Autopilot:
         else:
             self.say("KERNEL_DIRTY_STATE=CLEAN")
 
+        self.audit_workspace_repo_state()
         self.verify_extended_source_contracts()
         self.say("SOURCE_HEAD_GATE=PASS")
 
