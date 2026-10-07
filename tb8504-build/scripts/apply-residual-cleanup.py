@@ -199,8 +199,10 @@ def remove_dead_controls(device: Path) -> int:
 def replace_exact(path: Path, old: str, new: str, expected: int = 1) -> int:
     text = path.read_text("utf-8", errors="replace")
     count = text.count(old)
-    if count == 0 and new and new in text:
-        return 0
+    if count == 0:
+        if new == "" or (new and new in text):
+            return 0
+        fail(f"{path.name}: missing both original and repaired form for {old!r}")
     if count != expected:
         fail(f"{path.name}: expected {expected} occurrences of {old!r}, found {count}")
     path.write_text(text.replace(old, new), encoding="utf-8")
