@@ -33,6 +33,7 @@ REQUIRED = {
     "meta/primary-source-state.json",
     "meta/gps-source-state.json",
     "meta/workspace-source-state.json",
+    "meta/static-source-state.json",
     "SHA256SUMS",
     "device_lenovo_TB8504.tar.gz",
     "seeds/boot_seed.img",
@@ -295,7 +296,7 @@ def audit_device_tar(data: bytes) -> None:
         print(f"DEVICE_TREE_TAR_UNCOMPRESSED={total}")
 
 
-def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict]:
+def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict, dict]:
     def member(name: str) -> dict:
         try:
             obj = json.loads(z.read(name).decode("utf-8"))
@@ -308,6 +309,7 @@ def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict]:
     workspace = member("meta/workspace-source-state.json")
     gps = member("meta/gps-source-state.json")
     primary = member("meta/primary-source-state.json")
+    static = member("meta/static-source-state.json")
 
     projects = workspace.get("projects")
     count = workspace.get("project_count")
@@ -375,11 +377,38 @@ def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict]:
     if mode == "git":
         audit_untracked_manifest(z, "hardware/qcom-caf/msm8996/gps", gps)
 
+    if not static:
+        fail("static source provenance is empty")
+    for rel, row in sorted(static.items()):
+        if not isinstance(row, dict):
+            fail(f"static source provenance row invalid: {rel}")
+        head = str(row.get("head", ""))
+        patch_sha = str(row.get("patch_sha256", ""))
+        status = row.get("status")
+        untracked = row.get("untracked")
+        if not re.fullmatch(r"[0-9a-f]{40}", head):
+            fail(f"static source HEAD invalid: {rel}")
+        if not re.fullmatch(r"[0-9a-f]{64}", patch_sha):
+            fail(f"static source patch fingerprint invalid: {rel}")
+        if not isinstance(status, list):
+            fail(f"static source status invalid: {rel}")
+        if untracked != []:
+            fail(f"static source unexpectedly has untracked entries: {rel}")
+        patch_name = "patches/" + rel.replace("/", "__") + ".patch"
+        try:
+            actual_patch_sha = sha256_bytes(z.read(patch_name))
+        except KeyError:
+            fail(f"static source patch missing from seed: {rel}")
+        if actual_patch_sha != patch_sha:
+            fail(f"static source patch disagrees with seed: {rel}")
+
     print(f"PROVENANCE_WORKSPACE_PROJECT_COUNT={count}")
     print(f"PROVENANCE_WORKSPACE_REVISION_FINGERPRINT={rev}")
     print(f"PROVENANCE_GPS_MODE={mode}")
+    print(f"PROVENANCE_STATIC_SOURCE_COUNT={len(static)}")
+    print("STATIC_SOURCE_PROVENANCE_BINDING=PASS")
     print("CONVERGE_PROVENANCE_STRUCTURE=PASS")
-    return workspace, gps, primary
+    return workspace, gps, primary, static
 
 
 def parse_repo_heads(text: str) -> dict[str, str]:
@@ -636,7 +665,12 @@ def main() -> int:
 
         print(f"SEED_HASHES_VERIFIED={checked}")
 
-        workspace_provenance, gps_provenance, primary_provenance = audit_provenance(z)
+        (
+            workspace_provenance,
+            gps_provenance,
+            primary_provenance,
+            static_provenance,
+        ) = audit_provenance(z)
 
         module_manifest = parse_module_manifest(
             z.read("meta/INSTALLED_MODULES.txt").decode("utf-8", "replace")
@@ -767,6 +801,9 @@ def main() -> int:
         for rel, row in primary_provenance.items():
             if heads.get(rel) != row.get("head"):
                 fail(f"primary provenance HEAD disagrees with exported repo: {rel}")
+        for rel, row in static_provenance.items():
+            if heads.get(rel) != row.get("head"):
+                fail(f"static provenance HEAD disagrees with exported repo: {rel}")
         if gps_provenance.get("mode") == "git":
             gps_rel = "hardware/qcom-caf/msm8996/gps"
             if heads.get(gps_rel) != gps_provenance.get("head"):
