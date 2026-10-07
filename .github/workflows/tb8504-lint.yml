@@ -211,12 +211,30 @@ jobs:
               "hardware/qcom-caf/msm8996/gps":b"gps patch\n",
           }
           empty=h(b"")
+          dev_untracked_rel="rootdir/etc/tb8504-selftest.txt"
+          dev_untracked_data=b"provenance bytes\n"
+          dev_untracked_digest=h(dev_untracked_data)
+          dev_untracked_row={
+              "path":dev_untracked_rel,
+              "type":"file",
+              "size":len(dev_untracked_data),
+              "sha256":dev_untracked_digest,
+          }
+          uh=hashlib.sha256()
+          uh.update(dev_untracked_rel.encode()+b"\0")
+          uh.update(
+              b"F\0"
+              + str(len(dev_untracked_data)).encode()
+              + b"\0"
+              + dev_untracked_digest.encode()
+          )
+          dev_untracked_manifest=uh.hexdigest()
           primary={
               "device/lenovo/TB8504":{
                   "head":dev_head,
                   "patch_sha256":h(patches["device/lenovo/TB8504"]),
-                  "untracked_manifest_sha256":empty,
-                  "untracked":[],
+                  "untracked_manifest_sha256":dev_untracked_manifest,
+                  "untracked":[dev_untracked_row],
                   "status":[],
               },
               "vendor/lenovo/TB8504":{
@@ -272,6 +290,10 @@ jobs:
                   z.writestr("meta/primary-source-state.json",json.dumps(primary))
                   for rel,data in patches.items():
                       z.writestr("patches/"+rel.replace("/","__")+".patch",data)
+                  z.writestr(
+                      "untracked/device/lenovo/TB8504/"+dev_untracked_rel,
+                      dev_untracked_data,
+                  )
               p=subprocess.run([
                   "python3","tb8504-build/scripts/accept-converged-provenance.py",
                   "--seed",str(seed),
@@ -289,7 +311,27 @@ jobs:
               assert sic["gps_repo"]["head"] == gps_head
               assert sic["workspace_repo_contract"]["revision_fingerprint"] == workspace["revision_fingerprint"]
               assert sic["dynamic_primary_repos"]["device/lenovo/TB8504"]["post_converge_patch_sha256"] == primary["device/lenovo/TB8504"]["patch_sha256"]
+              assert sic["dynamic_primary_repos"]["device/lenovo/TB8504"]["post_converge_untracked_manifest_sha256"] == dev_untracked_manifest
               assert out["cloud_seed"]["legacy_seed_only"] is False
+
+              bad_seed=td/"seed-tampered.zip"
+              with zipfile.ZipFile(seed) as src, zipfile.ZipFile(bad_seed,"w") as dst:
+                  for info in src.infolist():
+                      data=src.read(info.filename)
+                      if info.filename == "untracked/device/lenovo/TB8504/"+dev_untracked_rel:
+                          data=b"tampered bytes\n"
+                      dst.writestr(info, data)
+              bad=subprocess.run([
+                  "python3","tb8504-build/scripts/accept-converged-provenance.py",
+                  "--seed",str(bad_seed),
+                  "--knowledge",str(kin),
+                  "--out",str(td/"should-not-exist.json"),
+                  "--release-tag","tb8504-selftest",
+                  "--request-commit",request,
+                  "--tooling-ref",tooling,
+              ],text=True,capture_output=True)
+              assert bad.returncode != 0
+              assert "untracked file content mismatch" in (bad.stdout+bad.stderr)
           print("TB8504_PROVENANCE_PROMOTION_SELFTEST=PASS")
           PY
 
