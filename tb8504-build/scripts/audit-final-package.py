@@ -394,6 +394,16 @@ def main() -> int:
         if not payload_hits:
             fail("no recognizable system/update payload in ROM ZIP")
 
+        forbidden_dynamic=[
+            n for n in payload_hits
+            if Path(n).name in {"payload.bin","super.img"}
+        ]
+        if forbidden_dynamic:
+            fail(
+                "A/B or dynamic-partition payload forbidden on legacy non-A/B "
+                f"TB8504: {forbidden_dynamic}"
+            )
+
         block_payloads=[
             n for n in payload_hits
             if Path(n).name in {
