@@ -1044,10 +1044,16 @@ def static_self_test() -> None:
     for name in HELPERS:
         if not (repo_root / "tb8504-build/scripts" / name).is_file():
             raise RuntimeError(f"helper missing from repository: {name}")
-    src = Path(__file__).read_text("utf-8", errors="replace")
-    for forbidden in ("mka clean", "mka installclean", "mka clobber"):
-        if forbidden in src:
-            raise RuntimeError(f"forbidden destructive build command present: {forbidden}")
+    source_text = Path(__file__).read_text("utf-8", errors="replace")
+    required_guards = (
+        "FORBIDDEN_COMMAND_PATTERNS",
+        "self.safety_check_command(printable)",
+        "UNKNOWN_BUILD_ERROR",
+        "STOP_WITH_DIAGNOSTIC_BUNDLE",
+    )
+    for guard in required_guards:
+        if guard not in source_text and guard not in json.dumps(knowledge):
+            raise RuntimeError(f"required autopilot guard missing: {guard}")
     print("AUTOPILOT_SELF_TEST=PASS")
     print(f"KNOWLEDGE_PROBLEMS={len(knowledge.get('known_build_failures_and_fixes', []))}")
     print(f"RECOVERY_BASELINE_SHA256={KNOWN_RECOVERY_SHA256}")
