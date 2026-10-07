@@ -1516,6 +1516,21 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                 kind: not self.build_binding_current(kind)
                 for kind in target_kinds
             }
+            for kind in target_kinds:
+                if not stale_before[kind]:
+                    continue
+                stale_path = self.product_out / f"{kind}.img"
+                if stale_path.is_file() or stale_path.is_symlink():
+                    old_sha = self.sha_file(stale_path) if stale_path.is_file() else "SYMLINK"
+                    self.say(
+                        f"{kind.upper()}_STALE_ARTIFACT_REMOVE="
+                        f"{stale_path} sha256={old_sha}"
+                    )
+                    stale_path.unlink()
+                    if stale_path.exists() or stale_path.is_symlink():
+                        raise StopAutopilot(
+                            f"cannot remove stale {kind}.img before rebuild"
+                        )
             self.say(f"BUILD_ATTEMPT={attempt}/{self.max_attempts}")
             r = self.android_shell(f"mka {sh_quote(target)}", f"build-{target}-attempt{attempt}.log")
             if r.rc == 0:
@@ -1526,12 +1541,10 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                             f"successful {target} produced no {kind}.img"
                         )
                     if stale_before[kind]:
-                        before = before_artifacts[kind]
-                        if before is not None and after == before:
-                            raise StopAutopilot(
-                                f"successful {target} did not refresh stale "
-                                f"{kind}.img; refusing source re-binding"
-                            )
+                        self.say(
+                            f"{kind.upper()}_STALE_ARTIFACT_FORCE_REBUILD=PASS "
+                            f"target={target}"
+                        )
                         self.say(
                             f"{kind.upper()}_ARTIFACT_REFRESH=PASS "
                             f"target={target}"
@@ -2092,6 +2105,7 @@ def static_self_test() -> None:
         "STOP_WITH_DIAGNOSTIC_BUNDLE",
         "did not refresh stale",
         "_ARTIFACT_REFRESH=PASS",
+        "_STALE_ARTIFACT_FORCE_REBUILD=PASS",
         "--upload-seed",
         "CLOUD_SEED_V2_HANDOFF=PASS",
         "SEED_HANDOFF_PREFLIGHT=PASS",
