@@ -2045,6 +2045,20 @@ def static_self_test() -> None:
                 f"required installed-output audit guard missing: {guard}"
             )
 
+    local_image_text = (
+        repo_root / "tb8504-build/scripts/audit-local-image.py"
+    ).read_text("utf-8", errors="replace")
+    for guard in (
+        "FORBIDDEN_CMDLINE_TOKENS",
+        "BOOT_CMDLINE_SELINUX_ENFORCEMENT=PASS",
+        "androidboot.selinux=permissive",
+        "enforcing=0",
+    ):
+        if guard not in local_image_text:
+            raise RuntimeError(
+                f"required boot-image SELinux guard missing: {guard}"
+            )
+
     final_package_text = (
         repo_root / "tb8504-build/scripts/audit-final-package.py"
     ).read_text("utf-8", errors="replace")
