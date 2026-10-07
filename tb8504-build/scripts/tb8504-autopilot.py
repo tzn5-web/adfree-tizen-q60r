@@ -953,7 +953,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             and image.stat().st_size == KNOWN_RECOVERY_SIZE
             and sha == KNOWN_RECOVERY_SHA256
         )
-        if not fresh and not self.image_binding_current(kind, image) and not known_recovery:
+        if not fresh and not self.image_binding_current(kind, image):
             self.say(f"{kind.upper()}_SOURCE_BINDING=STALE_OR_MISSING")
             return False
 
@@ -1525,7 +1525,6 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             return
         if self.goal == "recovery":
             self.ensure_image("boot")
-            self.source_changed = False
             self.ensure_image("recovery")
             return
         if self.goal == "next":
@@ -1533,13 +1532,11 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             return
         if self.goal == "system":
             self.ensure_image("boot")
-            self.source_changed = False
             self.ensure_image("recovery")
             self.ensure_system()
             return
         if self.goal == "rom":
             self.ensure_image("boot")
-            self.source_changed = False
             self.ensure_image("recovery")
             self.ensure_system()
             self.full_rom()
