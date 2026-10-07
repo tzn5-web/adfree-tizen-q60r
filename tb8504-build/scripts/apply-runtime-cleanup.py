@@ -90,15 +90,28 @@ def remove_dead_services(path: Path) -> set[str]:
 
 
 def remove_camera_sdk_override(path: Path) -> int:
-    text = path.read_text("utf-8", errors="replace")
-    pattern = re.compile(
-        r"(?m)^TARGET_PROCESS_SDK_VERSION_OVERRIDE\s*:=\s*\\\\\n"
-        r"\s*/vendor/bin/mm-qcamera-daemon=23\s*\n?"
-    )
-    new, count = pattern.subn("", text)
+    lines = path.read_text("utf-8", errors="replace").splitlines(keepends=True)
+    out: list[str] = []
+    count = 0
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith("TARGET_PROCESS_SDK_VERSION_OVERRIDE") and (
+            ":=" in stripped
+        ):
+            if i + 1 >= len(lines):
+                fail("truncated TARGET_PROCESS_SDK_VERSION_OVERRIDE")
+            next_stripped = lines[i + 1].strip()
+            if next_stripped == "/vendor/bin/mm-qcamera-daemon=23":
+                count += 1
+                i += 2
+                continue
+        out.append(lines[i])
+        i += 1
+
     if count != 1:
         fail(f"expected exactly one mm-qcamera-daemon SDK override, found {count}")
-    path.write_text(new, encoding="utf-8")
+    path.write_text("".join(out), encoding="utf-8")
     return count
 
 
