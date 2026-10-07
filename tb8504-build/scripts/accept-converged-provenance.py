@@ -186,6 +186,7 @@ def main() -> int:
         workspace = load_json_member(z, "meta/workspace-source-state.json")
         gps = load_json_member(z, "meta/gps-source-state.json")
         primary = load_json_member(z, "meta/primary-source-state.json")
+        static = load_json_member(z, "meta/static-source-state.json")
 
         recomputed = recompute_workspace(workspace)
         recorded = str(workspace.get("revision_fingerprint", ""))
@@ -195,6 +196,32 @@ def main() -> int:
         contracts = knowledge.get("source_integrity_contracts")
         if not isinstance(contracts, dict):
             die("source integrity contracts missing")
+
+        approved_static = contracts.get("static_target_repos")
+        if not isinstance(approved_static, dict) or set(static) != set(approved_static):
+            die(
+                "static source provenance set mismatch: "
+                f"{sorted(static)} != {sorted(approved_static) if isinstance(approved_static, dict) else []}"
+            )
+        for rel, row in sorted(static.items()):
+            spec = approved_static[rel]
+            if not isinstance(row, dict) or not isinstance(spec, dict):
+                die(f"static provenance row invalid: {rel}")
+            head = str(row.get("head", ""))
+            patch_sha = str(row.get("patch_sha256", ""))
+            if head != str(spec.get("head", "")):
+                die(f"static source HEAD differs from approved contract: {rel}")
+            if patch_sha != str(spec.get("patch_sha256", "")):
+                die(f"static source patch differs from approved contract: {rel}")
+            if row.get("untracked") != []:
+                die(f"static source contains untracked entries: {rel}")
+            try:
+                patch_bytes = z.read(patch_member(rel))
+            except KeyError:
+                die(f"static source patch member missing: {rel}")
+            if sha256_bytes(patch_bytes) != patch_sha:
+                die(f"static source patch bytes disagree with provenance: {rel}")
+
         dynamic = contracts.get("dynamic_primary_repos")
         if not isinstance(dynamic, dict) or set(dynamic) != set(PRIMARY):
             die("dynamic primary contract set mismatch")
@@ -308,6 +335,8 @@ def main() -> int:
     print(f"PROVENANCE_ACCEPT_WORKSPACE={recorded}")
     print(f"PROVENANCE_ACCEPT_PROJECT_COUNT={workspace['project_count']}")
     print(f"PROVENANCE_ACCEPT_GPS_MODE={mode}")
+    print(f"PROVENANCE_ACCEPT_STATIC_COUNT={len(static)}")
+    print("PROVENANCE_ACCEPT_STATIC_BINDING=PASS")
     print("PROVENANCE_ACCEPTANCE_CANDIDATE=PASS")
     return 0
 
