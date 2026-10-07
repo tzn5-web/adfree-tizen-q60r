@@ -65,14 +65,20 @@ jobs:
             tb8504-build/scripts/apply-runtime-cleanup.py \
             tb8504-build/scripts/apply-residual-cleanup.py \
             tb8504-build/scripts/audit-residual-contracts.py \
+            tb8504-build/scripts/apply-product-compat.py \
+            tb8504-build/scripts/audit-product-compat.py \
             tb8504-build/scripts/apply-residual-cleanup.py \
-            tb8504-build/scripts/audit-residual-contracts.py
+            tb8504-build/scripts/audit-residual-contracts.py \
+            tb8504-build/scripts/apply-product-compat.py \
+            tb8504-build/scripts/audit-product-compat.py
           ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' \
             tb8504-build/scripts/audit-stage8n.py \
             tb8504-build/scripts/audit-runtime-contracts.py \
             tb8504-build/scripts/apply-runtime-cleanup.py \
             tb8504-build/scripts/apply-residual-cleanup.py \
             tb8504-build/scripts/audit-residual-contracts.py \
+            tb8504-build/scripts/apply-product-compat.py \
+            tb8504-build/scripts/audit-product-compat.py \
             tb8504-build/config/stage8n.env
           ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' \
             tb8504-build/scripts/audit-stage8n.py \
@@ -212,6 +218,30 @@ jobs:
           echo "RESIDUAL_CLEANUP_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
 
+      - name: Migrate Android 16 product build overrides
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/apply-product-compat.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --patch-out /tmp/tb8504-stage8n/report/product-compat.patch \
+            --report-out /tmp/tb8504-stage8n/report/product-compat.txt \
+            2>&1 | tee /tmp/tb8504-stage8n/report/product-compat.log
+          RC=${PIPESTATUS[0]}
+          echo "PRODUCT_COMPAT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
+          exit "$RC"
+
+      - name: Audit Android 16 product build overrides
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/audit-product-compat.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            2>&1 | tee /tmp/tb8504-stage8n/report/product-compat-audit.log
+          RC=${PIPESTATUS[0]}
+          echo "PRODUCT_COMPAT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
+          exit "$RC"
+
       - name: Validate transformed device shell syntax
         shell: bash
         run: |
@@ -284,6 +314,12 @@ jobs:
             echo '## Residual cross-layer audit' >> "$GITHUB_STEP_SUMMARY"
             echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
             tail -n 200 /tmp/tb8504-stage8n/report/residual-contracts.log >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f /tmp/tb8504-stage8n/report/product-compat-audit.log ]; then
+            echo '## Android 16 product compatibility audit' >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
+            cat /tmp/tb8504-stage8n/report/product-compat-audit.log >> "$GITHUB_STEP_SUMMARY"
             echo '~~~' >> "$GITHUB_STEP_SUMMARY"
           fi
 
