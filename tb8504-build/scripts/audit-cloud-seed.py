@@ -628,14 +628,53 @@ def main() -> int:
         )
         print(f"LOCAL_KERNEL_BUILD_ONLY_DIRTY={kernel_build_only_dirty}")
 
-        exported_repos = z.read(
+        exported_repos_raw = z.read(
             "meta/EXPORTED_REPOS.txt"
         ).decode("utf-8", "replace").splitlines()
+        exported_repos = [x.strip() for x in exported_repos_raw if x.strip()]
+        if len(exported_repos) != len(set(exported_repos)):
+            fail("duplicate repository entries in EXPORTED_REPOS metadata")
 
-        if "hardware/qcom-caf/msm8996/gps" not in exported_repos:
-            fail("GPS/LOC repository missing from exported repo set")
+        exported_set = set(exported_repos)
+        head_set = set(heads)
+        missing_metadata = sorted(exported_set - head_set)
+        undeclared_metadata = sorted(head_set - exported_set)
+        if missing_metadata or undeclared_metadata:
+            fail(
+                "exported repo/REPOS metadata mismatch "
+                f"missing={missing_metadata} undeclared={undeclared_metadata}"
+            )
 
-        print(f"EXPORTED_REPO_COUNT={len([x for x in exported_repos if x.strip()])}")
+        if "hardware/qcom-caf/msm8996/gps" not in head_set:
+            fail("GPS/LOC repository was declared but not actually captured")
+
+        missing_repo_artifacts = []
+        for rel in sorted(exported_set):
+            key = rel.replace("/", "__")
+            required_repo_members = (
+                f"patches/{key}.patch",
+                f"commits/{key}.mbox",
+                f"meta/{key}.status.txt",
+                f"meta/{key}.upstream.txt",
+            )
+            for member in required_repo_members:
+                if member not in names:
+                    missing_repo_artifacts.append(member)
+        if missing_repo_artifacts:
+            fail(
+                "per-repository snapshot artifacts missing: "
+                f"{missing_repo_artifacts[:30]}"
+            )
+
+        if "meta/MISSING_REPOS.txt" in names:
+            missing_repos_text = z.read(
+                "meta/MISSING_REPOS.txt"
+            ).decode("utf-8", "replace").strip()
+            if missing_repos_text:
+                fail(f"seed declares uncaptured repositories: {missing_repos_text}")
+
+        print(f"EXPORTED_REPO_COUNT={len(exported_repos)}")
+        print("EXPORTED_REPO_METADATA_COHERENCE=PASS")
 
         patches = sorted(
             n for n in names if n.startswith("patches/") and n.endswith(".patch")
@@ -643,6 +682,16 @@ def main() -> int:
         statuses = sorted(
             n for n in names if n.startswith("meta/") and n.endswith(".status.txt")
         )
+        if len(patches) != len(exported_repos):
+            fail(
+                f"patch file count mismatch patches={len(patches)} "
+                f"repos={len(exported_repos)}"
+            )
+        if len(statuses) != len(exported_repos):
+            fail(
+                f"status file count mismatch statuses={len(statuses)} "
+                f"repos={len(exported_repos)}"
+            )
         print(f"PATCH_FILES={len(patches)}")
         print(f"STATUS_FILES={len(statuses)}")
         print(f"ZIP_FILES={len(names)}")
