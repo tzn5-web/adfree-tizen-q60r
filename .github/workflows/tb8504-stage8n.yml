@@ -161,6 +161,33 @@ jobs:
           grep -Fx ' M TB8504-vendor.mk' /tmp/tb8504-stage8n/report/vendor-status.txt
           test "$(wc -l < /tmp/tb8504-stage8n/report/vendor-status.txt)" -eq 1
 
+      - name: Audit inherited IMS SELinux baseline
+        shell: bash
+        run: |
+          set -o pipefail
+          source tb8504-build/config/stage8n.env
+          SEPOLICY=/tmp/tb8504-stage8n/sepolicy
+          git init -q "$SEPOLICY"
+          git -C "$SEPOLICY" remote add origin "$SEPOLICY_AUDIT_REPO"
+          git -C "$SEPOLICY" fetch -q --depth 1 origin "$SEPOLICY_AUDIT_SHA"
+          git -C "$SEPOLICY" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$SEPOLICY" rev-parse HEAD)" = "$SEPOLICY_AUDIT_SHA"
+
+          FC="$SEPOLICY/legacy/vendor/common/file_contexts"
+          grep -F '/(vendor|system/vendor)/bin/imsdatadaemon       u:object_r:ims_exec:s0' "$FC"
+          grep -F '/(vendor|system/vendor)/bin/imsqmidaemon        u:object_r:ims_exec:s0' "$FC"
+          grep -F '/(vendor|system/vendor)/bin/ims_rtp_daemon      u:object_r:hal_imsrtp_exec:s0' "$FC"
+          grep -F '/(vendor|system/vendor)/bin/imsrcsd             u:object_r:hal_rcsservice_exec:s0' "$FC"
+
+          grep -F 'init_daemon_domain(ims)' "$SEPOLICY/legacy/vendor/common/ims.te"
+          grep -F 'init_daemon_domain(hal_imsrtp)' "$SEPOLICY/legacy/vendor/common/hal_imsrtp.te"
+          grep -F 'init_daemon_domain(hal_rcsservice)' "$SEPOLICY/legacy/vendor/common/hal_rcsservice.te"
+
+          {
+            echo "SEPOLICY_AUDIT_SHA=$SEPOLICY_AUDIT_SHA"
+            echo "IMS_SEPOLICY_BASELINE=PASS"
+          } >> /tmp/tb8504-stage8n/report/STATUS.txt
+
       - name: Apply audited runtime cleanup overlay
         shell: bash
         run: |
