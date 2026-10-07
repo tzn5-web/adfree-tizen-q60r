@@ -132,6 +132,29 @@ def remove_wfd_hal(path: Path) -> int:
     return 1
 
 
+def clear_camera_daemon_sepolicy(device: Path) -> int:
+    path = device / "sepolicy/mm-qcamerad.te"
+    if not path.is_file():
+        fail("expected sepolicy/mm-qcamerad.te is missing")
+
+    lines = path.read_text("utf-8", errors="replace").splitlines()
+    active = [
+        line.strip() for line in lines
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if not active:
+        fail("camera-daemon sepolicy is already empty; refusing ambiguous cleanup")
+    if not all("mm-qcamerad" in line for line in active):
+        fail("camera-daemon sepolicy contains non-daemon policy; refusing cleanup")
+
+    path.write_text(
+        "# Legacy standalone camera-daemon policy removed; "
+        "camera HAL runs in-process.\n",
+        encoding="utf-8",
+    )
+    return 1
+
+
 def rewrite_stale_comments(device: Path) -> int:
     changes = 0
     replacements = {
@@ -215,7 +238,12 @@ def main() -> int:
     ]
     board = device / "BoardConfig.mk"
     manifest = device / "manifest.xml"
-    tracked = rc_files + [board, manifest, device / "rootdir/init.lenovo.rc"]
+    tracked = rc_files + [
+        board,
+        manifest,
+        device / "rootdir/init.lenovo.rc",
+        device / "sepolicy/mm-qcamerad.te",
+    ]
     tracked = list(dict.fromkeys(p for p in tracked if p.is_file()))
     before = snapshot(tracked, device)
 
@@ -233,6 +261,7 @@ def main() -> int:
 
     remove_camera_sdk_override(board)
     remove_wfd_hal(manifest)
+    clear_camera_daemon_sepolicy(device)
     rewrite_stale_comments(device)
 
     remaining = active_service_names(device) & DEAD_SERVICES
@@ -242,6 +271,16 @@ def main() -> int:
     board_text = board.read_text("utf-8", errors="replace")
     if "/vendor/bin/mm-qcamera-daemon=23" in board_text:
         fail("stale mm-qcamera-daemon SDK override remains")
+
+    sepolicy_text = (device / "sepolicy/mm-qcamerad.te").read_text(
+        "utf-8", errors="replace"
+    )
+    active_sepolicy = [
+        line for line in sepolicy_text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if any("mm-qcamerad" in line for line in active_sepolicy):
+        fail("stale camera-daemon SELinux rules remain")
 
     manifest_root = ET.parse(manifest).getroot()
     stale_hal = [
@@ -264,6 +303,7 @@ def main() -> int:
                 f"REMOVED_SERVICE_NAMES={','.join(sorted(removed))}",
                 "REMOVED_CAMERA_SDK_OVERRIDE=1",
                 "REMOVED_WFD_VINTF_HAL=1",
+                "CLEARED_CAMERA_DAEMON_SEPOLICY=1",
                 f"CHANGED_FILES={len(changed_files)}",
                 *[f"CHANGED_FILE={rel}" for rel in changed_files],
                 "NO_FLASH=YES",
@@ -277,6 +317,7 @@ def main() -> int:
     print(f"REMOVED_INIT_SERVICES={len(removed)}")
     print("REMOVED_CAMERA_SDK_OVERRIDE=1")
     print("REMOVED_WFD_VINTF_HAL=1")
+    print("CLEARED_CAMERA_DAEMON_SEPOLICY=1")
     print(f"CHANGED_FILES={len(changed_files)}")
     print(f"PATCH_OUT={args.patch_out}")
     print("RUNTIME_CLEANUP=PASS")
