@@ -2036,6 +2036,8 @@ def static_self_test() -> None:
         'for p in vendor_root.rglob("*")',
         "ACTUAL_OUTPUT_UNRESOLVED_EDGES",
         "ACTUAL_OUTPUT_WRONG_BITNESS_EDGES",
+        'EXPECTED_FIRST_API_LEVEL = "25"',
+        "CHECKVINTF_KERNEL_REQUIREMENTS=ENFORCED",
     ):
         if guard not in built_output_text:
             raise RuntimeError(
