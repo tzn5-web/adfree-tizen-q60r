@@ -68,7 +68,9 @@
     "boot_seed_present": true,
     "recovery_seed_present": false,
     "boot_seed_sha256": "09432d14b103881fe9d4940edf2175a7ec7118aea7dcda87cf33f38b6254bac3",
-    "integrity": "97 ZIP entries; testzip clean; 96/96 SHA256SUMS verified; no credential-pattern findings"
+    "integrity": "97 ZIP entries; testzip clean; 96/96 SHA256SUMS verified; no credential-pattern findings",
+    "coverage": "INCOMPLETE_FOR_FINAL_PROVENANCE",
+    "coverage_blocker": "hardware/qcom-caf/msm8996/gps was listed in EXPORTED_REPOS but absent from REPOS metadata and per-repo patch/status/mbox; exporter/auditor are now hardened and the next seed must capture it."
   },
   "kernel_and_module_history": {
     "expected_module_count": 12,
@@ -125,7 +127,9 @@
       "unresolved_unique_libs": 0,
       "wrong_bitness_edges": 0,
       "wrong_bitness_unique_libs": 0,
-      "gnss_bad_edges": 0
+      "gnss_bad_edges": 0,
+      "latest_run": 17,
+      "latest_head": "df9f18645ab3b19a8a5db6494bd914c80bda857d"
     }
   },
   "runtime_cleanup_history": {
@@ -165,7 +169,10 @@
     },
     "wfd": {
       "removed_vintf_hal": "com.qualcomm.qti.wifidisplayhal",
-      "removed_modules": ["WfdService", "WfdCommon"],
+      "removed_modules": [
+        "WfdService",
+        "WfdCommon"
+      ],
       "disabled_framework_flags": [
         "config_enableWifiDisplay",
         "config_wifiDisplaySupportsProtectedBuffers"
@@ -274,9 +281,9 @@
     }
   },
   "workflow_history": {
-    "stage8n_strict_latest_known": "SUCCESS",
+    "stage8n_strict_latest_known": "SUCCESS_RUN_17_CURRENT_HELPERS_BEFORE_SEED_CAPTURE_HARDENING",
     "stage8n_idempotency_gate": "SUCCESS",
-    "lint_latest_known": "SUCCESS",
+    "lint_latest_known": "SUCCESS_RUN_91_PLUS_PENDING_92_AT_AUDIT_TIME",
     "important_rule": "Source-side PASS is not final authority for produced images. Built artifacts in out/ must be audited after each build."
   },
   "autopilot_policy": {
@@ -305,5 +312,48 @@
       "never_retry_unknown_error": true
     },
     "final_authority": "Actual built output plus post-build audits; never source audit alone."
+  },
+  "source_integrity_contracts": {
+    "static_target_repos": {
+      "hardware/qcom-caf/msm8996/audio": {
+        "head": "560c079979144611f90e32f5a7485e631ef022c9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "hardware/qcom-caf/msm8996/media": {
+        "head": "6cd9f642fa82d3da39ec5eef7aad6c158c2fce0f",
+        "patch_sha256": "26260b2a978a8e98b63002901576e849a5aa92fbaa817066e4690c6a987dc63e"
+      },
+      "hardware/qcom-caf/msm8996/display": {
+        "head": "92dc6b713dc4b4d37959b6af1078b98dd73ba740",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "hardware/lineage/compat": {
+        "head": "9e8811a297036c370f7643813a3c733f6e442d86",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "device/qcom/sepolicy-legacy-um": {
+        "head": "8204f3a2895517f82bcc76e69996e51d4ea820fc",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "external/XMP-Toolkit-SDK": {
+        "head": "83f7b87cad246ed89c6c7cc66bfcfeeccec6cc99",
+        "patch_sha256": "9a6597d32b43e65e3cc5434e4b07d3d292b22cd2d7475c985caaffd50e2d24df"
+      },
+      "external/google-highway": {
+        "head": "12062ba78328dac793dcec57c63865ab480f1f18",
+        "patch_sha256": "625af3a51f98db0715ddc92237e75326c4be6cb4db606298c640f3123c369538"
+      },
+      "external/skia": {
+        "head": "22f5edb6c1bf350d1d9d67bb429db1a5539f3c05",
+        "patch_sha256": "0bb8cb3828d13ff3e56cd1ed32b6b096e69bcd9d131c881741e6764d0a52732d"
+      }
+    },
+    "host_only_repo": {
+      "path": "prebuilts/rust",
+      "head": "06a4f29f8512c6b77bdce81dd036a3e39954803b",
+      "allowed_dirty_prefix": "windows-x86/"
+    },
+    "required_unproven_repo": "hardware/qcom-caf/msm8996/gps",
+    "policy": "converge may collect an unproven repo state; any build goal must stop until the repo is captured and an explicit contract is added"
   }
 }
