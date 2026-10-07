@@ -57,8 +57,8 @@ PROHIBITED_OUTPUT_BASENAMES = {
 CONTROL_RE = re.compile(r"^\s*(?:start|stop|restart|enable|disable)\s+([^\s#;]+)")
 CTL_RE = re.compile(r"^\s*setprop\s+ctl\.(?:start|stop|restart)\s+([^\s#;]+)")
 SERVICE_RE = re.compile(r"^service\s+(\S+)\s+([^\s\\]+)")
-NEEDED_RE = re.compile(r"\\(NEEDED\\).*\\[([^\\]]+)\\]")
-SONAME_RE = re.compile(r"\\(SONAME\\).*\\[([^\\]]+)\\]")
+NEEDED_RE = re.compile(r"\(NEEDED\).*\[([^\]]+)\]")
+SONAME_RE = re.compile(r"\(SONAME\).*\[([^\]]+)\]")
 
 def fail(msg: str) -> None:
     print(f"BUILT_OUTPUT_AUDIT_FAIL={msg}")
