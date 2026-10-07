@@ -352,6 +352,28 @@ class Autopilot:
             else:
                 h.update(b"O")
 
+    def untracked_manifest(self, repo: Path) -> tuple[str, list[dict[str, object]]]:
+        rows: list[dict[str, object]] = []
+        h = hashlib.sha256()
+        for rel in self.git_untracked(repo):
+            p = repo / rel
+            row: dict[str, object] = {"path": rel}
+            h.update(rel.encode("utf-8", "surrogateescape") + b"\0")
+            if p.is_symlink():
+                target = os.readlink(p)
+                row.update({"type": "symlink", "target": target})
+                h.update(b"L\0" + target.encode("utf-8", "surrogateescape"))
+            elif p.is_file():
+                digest = self.sha_file(p)
+                size = p.stat().st_size
+                row.update({"type": "file", "size": size, "sha256": digest})
+                h.update(b"F\0" + str(size).encode("ascii") + b"\0" + digest.encode("ascii"))
+            else:
+                row.update({"type": "other"})
+                h.update(b"O")
+            rows.append(row)
+        return h.hexdigest(), rows
+
     def hash_plain_tree(self, root: Path) -> str:
         h = hashlib.sha256()
         if not root.is_dir():
@@ -498,6 +520,68 @@ class Autopilot:
             self.say("SOURCE_PROVENANCE=PARTIAL_CONVERGE_ONLY")
         else:
             self.say("SOURCE_PROVENANCE=PASS")
+
+    def validate_dynamic_primary_contracts(self) -> None:
+        contracts = self.knowledge.get("source_integrity_contracts", {})
+        dynamic = contracts.get("dynamic_primary_repos", {})
+        if not isinstance(dynamic, dict) or not dynamic:
+            raise StopAutopilot("dynamic primary source contracts missing")
+
+        report: dict[str, object] = {}
+        missing_contracts: list[str] = []
+        for rel, spec in sorted(dynamic.items()):
+            repo = self.root / rel
+            if not repo.is_dir():
+                raise StopAutopilot(f"dynamic primary repo missing: {rel}")
+            head = self.capture(["git", "rev-parse", "HEAD"], cwd=repo)
+            wanted_head = str(spec.get("head", ""))
+            if head != wanted_head:
+                raise StopAutopilot(
+                    f"dynamic primary HEAD mismatch {rel}: {head} != {wanted_head}"
+                )
+            patch_sha = self.git_diff_sha256(repo)
+            untracked_sha, untracked_rows = self.untracked_manifest(repo)
+            report[rel] = {
+                "head": head,
+                "patch_sha256": patch_sha,
+                "untracked_manifest_sha256": untracked_sha,
+                "untracked": untracked_rows,
+                "status": self.git_status(repo).splitlines(),
+            }
+            wanted_patch = spec.get("post_converge_patch_sha256")
+            wanted_untracked = spec.get("post_converge_untracked_manifest_sha256")
+            if not wanted_patch or not wanted_untracked:
+                missing_contracts.append(rel)
+                continue
+            if patch_sha != wanted_patch:
+                raise StopAutopilot(
+                    f"post-convergence patch mismatch {rel}: "
+                    f"{patch_sha} != {wanted_patch}"
+                )
+            if untracked_sha != wanted_untracked:
+                raise StopAutopilot(
+                    f"post-convergence untracked manifest mismatch {rel}: "
+                    f"{untracked_sha} != {wanted_untracked}"
+                )
+            self.say(f"POST_CONVERGENCE_SOURCE_CONTRACT[{rel}]=PASS")
+
+        (self.report / "primary-source-state.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        if missing_contracts:
+            self.say(
+                "UNPROVEN_PRIMARY_SOURCE_REPOS="
+                + ",".join(sorted(missing_contracts))
+            )
+            if self.goal != "converge":
+                raise StopAutopilot(
+                    "build goal refused until post-convergence device/vendor "
+                    "fingerprints are explicitly approved"
+                )
+            self.say("PRIMARY_SOURCE_PROVENANCE=PARTIAL_CONVERGE_ONLY")
+        else:
+            self.say("PRIMARY_SOURCE_PROVENANCE=PASS")
 
     def compute_source_fingerprint(self) -> str:
         contracts = self.knowledge.get("source_integrity_contracts", {})
@@ -740,6 +824,7 @@ class Autopilot:
             raise StopAutopilot("runtime init/VINTF contract audit failed")
 
         self.snapshot_sources("after-convergence")
+        self.validate_dynamic_primary_contracts()
         self.current_source_fingerprint = self.compute_source_fingerprint()
         self.status["source_fingerprint"] = self.current_source_fingerprint
         self.state["source_fingerprint"] = self.current_source_fingerprint
