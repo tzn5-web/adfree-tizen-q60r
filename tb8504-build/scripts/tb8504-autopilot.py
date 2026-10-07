@@ -820,10 +820,32 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                 h.update(chunk)
         return h.hexdigest()
 
-    def audit_image(self, kind: str, allow_existing: bool = True) -> bool:
+    def image_binding_current(self, kind: str, image: Path) -> bool:
+        if not self.current_source_fingerprint:
+            raise StopAutopilot("source fingerprint missing before image audit")
+        row = self.state.get("images", {}).get(kind, {})
+        if not isinstance(row, dict):
+            return False
+        if row.get("source_fingerprint") != self.current_source_fingerprint:
+            return False
+        if row.get("sha256") != self.sha_file(image):
+            return False
+        return True
+
+    def audit_image(self, kind: str, fresh: bool = False) -> bool:
         image = self.product_out / f"{kind}.img"
         if not image.is_file():
             return False
+        sha = self.sha_file(image)
+        known_recovery = (
+            kind == "recovery"
+            and image.stat().st_size == KNOWN_RECOVERY_SIZE
+            and sha == KNOWN_RECOVERY_SHA256
+        )
+        if not fresh and not self.image_binding_current(kind, image) and not known_recovery:
+            self.say(f"{kind.upper()}_SOURCE_BINDING=STALE_OR_MISSING")
+            return False
+
         release_file = self.report / "release.txt"
         r = self.helper(
             "audit-local-image.py",
@@ -841,18 +863,19 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         marker = f"{kind.upper()}_IMAGE_AUDIT=PASS"
         if marker not in r.text:
             return False
-        sha = self.sha_file(image)
         self.state.setdefault("images", {})[kind] = {
             "sha256": sha,
             "size": image.stat().st_size,
+            "source_fingerprint": self.current_source_fingerprint,
             "audited": dt.datetime.now().isoformat(),
             "tooling_ref": self.tooling_ref,
         }
         self.save_state()
+        self.say(f"{kind.upper()}_SOURCE_BINDING=PASS")
         self.say(f"{kind.upper()}_IMAGE_SHA256={sha}")
         self.say(f"{kind.upper()}_IMAGE_AUDIT=PASS")
         if kind == "recovery":
-            if image.stat().st_size == KNOWN_RECOVERY_SIZE and sha == KNOWN_RECOVERY_SHA256:
+            if known_recovery:
                 self.say("RECOVERY_MATCHES_20261007_PROVEN_BASELINE=YES")
             if KNOWN_RECOVERY_KERNEL_SHA256 in r.text:
                 self.say("RECOVERY_KERNEL_MATCHES_20261007_PROVEN_BASELINE=YES")
@@ -1021,13 +1044,13 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
 
         target = f"{kind}image"
         self.build_target(target)
-        if not self.audit_image(kind):
+        if not self.audit_image(kind, fresh=True):
             rlog = (self.logs / f"audit-{kind}-image.log")
             text = rlog.read_text("utf-8", errors="replace") if rlog.is_file() else ""
             classified = self.classify_failure(text, target)
             if classified and self.apply_handler(classified[0], target):
                 self.build_target(target)
-                if self.audit_image(kind):
+                if self.audit_image(kind, fresh=True):
                     return
             raise StopAutopilot(f"{kind} image audit failed after successful build")
         self.say(f"{kind.upper()}_BUILD=PASS")
