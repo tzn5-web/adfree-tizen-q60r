@@ -208,8 +208,44 @@ set +u
 # shellcheck disable=SC1091
 source build/envsetup.sh || fail 49 "source build/envsetup.sh failed"
 
-if ! lunch lineage_TB8504-userdebug; then
-    fail 50 "lunch lineage_TB8504-userdebug failed"
+TARGET_PRODUCT_NAME="lineage_TB8504"
+TARGET_VARIANT_NAME="userdebug"
+
+mapfile -t AVAILABLE_RELEASES < <(
+    list_releases "$TARGET_PRODUCT_NAME" 2>/dev/null |
+        awk 'NF {print $1}' |
+        sort -u
+)
+
+if [ "${#AVAILABLE_RELEASES[@]}" -eq 0 ]; then
+    fail 50 "no lunch release configs found for $TARGET_PRODUCT_NAME"
+fi
+
+TARGET_RELEASE_NAME=""
+for candidate in trunk_staging bp2a bp1a; do
+    for available in "${AVAILABLE_RELEASES[@]}"; do
+        if [ "$available" = "$candidate" ]; then
+            TARGET_RELEASE_NAME="$candidate"
+            break 2
+        fi
+    done
+done
+
+if [ -z "$TARGET_RELEASE_NAME" ] && [ "${#AVAILABLE_RELEASES[@]}" -eq 1 ]; then
+    TARGET_RELEASE_NAME="${AVAILABLE_RELEASES[0]}"
+fi
+
+if [ -z "$TARGET_RELEASE_NAME" ]; then
+    echo "AVAILABLE_RELEASES=${AVAILABLE_RELEASES[*]}" >&2
+    fail 50 "unable to choose a unique release config for $TARGET_PRODUCT_NAME"
+fi
+
+echo "LUNCH_PRODUCT=$TARGET_PRODUCT_NAME"
+echo "LUNCH_RELEASE=$TARGET_RELEASE_NAME"
+echo "LUNCH_VARIANT=$TARGET_VARIANT_NAME"
+
+if ! lunch "$TARGET_PRODUCT_NAME" "$TARGET_RELEASE_NAME" "$TARGET_VARIANT_NAME"; then
+    fail 50 "lunch $TARGET_PRODUCT_NAME $TARGET_RELEASE_NAME $TARGET_VARIANT_NAME failed"
 fi
 
 set +e
