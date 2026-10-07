@@ -711,6 +711,12 @@ def audit_rom_zip(out: Path, rom: Path) -> None:
                     fail(f"ROM metadata pre-device does not include TB8504: {pre_device}")
 
             has_payload="payload.bin" in names
+            has_super=any(Path(n).name=="super.img" for n in names)
+            if has_payload or has_super:
+                fail(
+                    "A/B or dynamic-partition payload found in legacy non-A/B "
+                    f"TB8504 ROM: payload={has_payload} super={has_super}"
+                )
             has_block_system=(
                 any(
                     n in names for n in (
