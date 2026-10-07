@@ -39,6 +39,13 @@ REQUIRED_CMDLINE_TOKENS = (
     "androidboot.bootdevice=7824900.sdhci",
     "loop.max_part=7",
 )
+FORBIDDEN_CMDLINE_TOKENS = {
+    "androidboot.selinux=permissive",
+    "androidboot.selinux=disabled",
+    "androidboot.selinux=0",
+    "selinux=0",
+    "enforcing=0",
+}
 EXPECTED_MODULES = {
     "ansi_cprng.ko", "backlight.ko", "br_netfilter.ko", "evbug.ko",
     "generic_bl.ko", "lcd.ko", "mmc_block_test.ko", "mmc_test.ko",
@@ -383,6 +390,13 @@ def main() -> int:
     ]
     if missing_cmdline:
         fail(f"required TB8504 kernel cmdline tokens missing: {missing_cmdline}")
+    forbidden_cmdline=sorted(cmdline_tokens & FORBIDDEN_CMDLINE_TOKENS)
+    if forbidden_cmdline:
+        fail(
+            "SELinux permissive/disabled kernel cmdline forbidden: "
+            f"{forbidden_cmdline}"
+        )
+    print("BOOT_CMDLINE_SELINUX_ENFORCEMENT=PASS")
     print("BOOT_CMDLINE_CONTRACT=PASS")
 
     kernel_off = page_size
