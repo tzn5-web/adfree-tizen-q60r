@@ -198,6 +198,8 @@ jobs:
                       raise SystemExit(f"device untracked path escapes tree: {name}")
                   dst.parent.mkdir(parents=True, exist_ok=True)
                   dst.write_bytes(z.read(name))
+                  mode=(z.getinfo(name).external_attr >> 16) & 0o7777
+                  dst.chmod(mode)
           PY
 
           EXPECTED_PATCH_SHA="$(python3 - <<'PY'
@@ -212,9 +214,58 @@ jobs:
             exit 9
           }
 
-          diff -qr --exclude=.git             /tmp/tb8504-stage8n/reconstructed/device-tar/TB8504             "$DEVICE"
-          echo "DEVICE_RECONSTRUCTED_FROM_PROVENANCE=PASS" |             tee -a /tmp/tb8504-stage8n/report/STATUS.txt
-          echo "DEVICE_TAR_PROVENANCE_BINDING=PASS" |             tee -a /tmp/tb8504-stage8n/report/STATUS.txt
+          diff -qr --exclude=.git \
+            /tmp/tb8504-stage8n/reconstructed/device-tar/TB8504 \
+            "$DEVICE"
+          python3 - \
+            /tmp/tb8504-stage8n/reconstructed/device-tar/TB8504 \
+            "$DEVICE" <<'PY'
+          import hashlib, os, sys
+          from pathlib import Path
+
+          def manifest(root):
+              root=Path(root)
+              rows=[]
+              for p in sorted(
+                  root.rglob("*"),
+                  key=lambda x:x.relative_to(root).as_posix(),
+              ):
+                  rel=p.relative_to(root).as_posix()
+                  if rel == ".git" or rel.startswith(".git/"):
+                      continue
+                  st=p.lstat()
+                  mode=st.st_mode & 0o7777
+                  if p.is_symlink():
+                      rows.append((rel,"L",mode,os.readlink(p)))
+                  elif p.is_file():
+                      h=hashlib.sha256(p.read_bytes()).hexdigest()
+                      rows.append((rel,"F",mode,st.st_size,h))
+                  elif p.is_dir():
+                      rows.append((rel,"D",mode))
+                  else:
+                      raise SystemExit(f"unsupported device tree entry: {p}")
+              return rows
+
+          left=manifest(sys.argv[1])
+          right=manifest(sys.argv[2])
+          if left != right:
+              for i in range(min(len(left),len(right))):
+                  if left[i] != right[i]:
+                      raise SystemExit(
+                          f"device tree metadata mismatch at {i}: "
+                          f"{left[i]!r} != {right[i]!r}"
+                      )
+              raise SystemExit(
+                  f"device tree manifest length mismatch: "
+                  f"{len(left)} != {len(right)}"
+              )
+          print(f"DEVICE_TREE_CANONICAL_ENTRIES={len(left)}")
+          print("DEVICE_TREE_METADATA_BINDING=PASS")
+          PY
+          echo "DEVICE_RECONSTRUCTED_FROM_PROVENANCE=PASS" | \
+            tee -a /tmp/tb8504-stage8n/report/STATUS.txt
+          echo "DEVICE_TAR_PROVENANCE_BINDING=PASS" | \
+            tee -a /tmp/tb8504-stage8n/report/STATUS.txt
 
       - name: Reconstruct exact patched vendor tree
         shell: bash
