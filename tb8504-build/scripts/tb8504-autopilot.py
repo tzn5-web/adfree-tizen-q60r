@@ -207,11 +207,33 @@ class Autopilot:
         return p.stdout.strip()
 
     def resolve_tooling_ref(self) -> str:
-        out = self.capture([
-            "gh", "api", "--method", "GET",
-            f"repos/{REPO}/branches/{BRANCH}",
-            "--jq", ".commit.sha",
-        ])
+        pinned = os.environ.get("TB8504_TOOLING_REF", "").strip()
+        if pinned:
+            if not re.fullmatch(r"[0-9a-f]{40}", pinned):
+                raise StopAutopilot(
+                    f"invalid TB8504_TOOLING_REF override: {pinned!r}"
+                )
+            # Prove the pinned commit exists in the intended repository before
+            # using it for any helper download.
+            resolved = self.capture([
+                "gh", "api", "--method", "GET",
+                f"repos/{REPO}/commits/{pinned}",
+                "--jq", ".sha",
+            ])
+            if resolved != pinned:
+                raise StopAutopilot(
+                    f"tooling pin mismatch: requested={pinned} resolved={resolved}"
+                )
+            out = pinned
+            self.say("TOOLING_REF_MODE=PINNED")
+        else:
+            out = self.capture([
+                "gh", "api", "--method", "GET",
+                f"repos/{REPO}/branches/{BRANCH}",
+                "--jq", ".commit.sha",
+            ])
+            self.say("TOOLING_REF_MODE=BRANCH_HEAD")
+
         if not re.fullmatch(r"[0-9a-f]{40}", out):
             raise StopAutopilot(f"invalid GitHub tooling ref: {out!r}")
         self.tooling_ref = out
