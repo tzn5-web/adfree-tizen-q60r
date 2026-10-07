@@ -268,6 +268,16 @@
       "symptom": "Android 16 tree advertises background blur on low-end TB8504",
       "cause": "Newer device-tree properties enabled SurfaceFlinger blur capability while carrying mixed-generation graphics tuning",
       "fix": "Set ro.surface_flinger.supports_background_blur=0, remove stale debug.sf.disable_backpressure, retain proven Android-10-era Qualcomm graphics settings until hardware frame-timing evidence says otherwise."
+    },
+    {
+      "symptom": "mka returns success while a stale target image remains unchanged",
+      "cause": "Ninja can report the requested target up to date even when the autopilot source fingerprint changed or a dependency edge was missed",
+      "fix": "Capture pre-build SHA256/size/mtime and refuse source re-binding when a stale boot/recovery/system/vendor artifact was not actually refreshed."
+    },
+    {
+      "symptom": "checkvintf passes while kernel requirements are silently skipped",
+      "cause": "checkvintf omits runtime kernel requirements unless --kernel receives the built kernel release and config",
+      "fix": "Require ro.product.first_api_level=25 and run checkvintf with the built KERNEL_OBJ release plus .config."
     }
   ],
   "successful_artifacts": {
@@ -443,7 +453,9 @@
       "e2fsck -f -n must return clean",
       "actual installed ELF DT_NEEDED graph and bitness",
       "host checkvintf --check-compat",
-      "built low-end graphics properties"
+      "built low-end graphics properties",
+      "all installed vendor ELF consumers are re-audited against bitness-correct providers, not only PRODUCT_COPY_FILES entries",
+      "host checkvintf receives ro.product.first_api_level=25 and the built kernel release + .config so kernel VINTF requirements are not skipped"
     ],
     "final_ota": [
       "ZIP CRC and safe paths",
@@ -451,8 +463,14 @@
       "post-build fingerprint and SDK",
       "boot/recovery binding",
       "block OTA transfer-list syntax",
-      "system.new.dat(.br/.xz) new/zero blocks bound to staged system.img"
+      "system.new.dat(.br/.xz) new/zero blocks bound to staged system.img",
+      "payload.bin and super.img are forbidden because TB8504 is legacy static non-A/B"
     ],
-    "build_metadata": "Source-only converge never trusts stale module-info.json. Every build goal runs AOSP refreshmod and re-audits runtime contracts before compiling images."
+    "build_metadata": "Source-only converge never trusts stale module-info.json. Every build goal runs AOSP refreshmod and re-audits runtime contracts before compiling images.",
+    "artifact_binding": [
+      "boot/recovery/system/vendor/ROM state is bound to SOURCE_FINGERPRINT plus SHA256",
+      "a successful mka target may not re-bind a stale artifact unless the produced file is demonstrably refreshed",
+      "bacon applies the same stale-output refresh requirement to boot/recovery/system when their bindings are stale"
+    ]
   }
 }
