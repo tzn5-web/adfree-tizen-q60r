@@ -263,6 +263,22 @@ class Autopilot:
 
     def refresh_tooling(self) -> None:
         self.resolve_tooling_ref()
+
+        canonical_self = self.report / "canonical-tb8504-autopilot.py"
+        self.fetch_repo_file(
+            "tb8504-build/scripts/tb8504-autopilot.py", canonical_self
+        )
+        running_self = Path(__file__).resolve()
+        running_sha = self.sha_file(running_self)
+        canonical_sha = self.sha_file(canonical_self)
+        self.say(f"RUNNING_AUTOPILOT_SHA256={running_sha}")
+        self.say(f"PINNED_AUTOPILOT_SHA256={canonical_sha}")
+        if running_sha != canonical_sha:
+            raise StopAutopilot(
+                "running autopilot differs from the pinned GitHub commit"
+            )
+        self.say("AUTOPILOT_SELF_INTEGRITY=PASS")
+
         for name in HELPERS:
             self.fetch_repo_file(f"tb8504-build/scripts/{name}", self.tools / name)
         self.fetch_repo_file(KNOWLEDGE_PATH, self.report / "autopilot-knowledge.json")
