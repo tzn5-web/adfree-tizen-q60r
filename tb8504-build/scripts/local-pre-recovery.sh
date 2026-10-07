@@ -11,7 +11,7 @@ PRODUCT_OUT="$ROOT/out/target/product/TB8504"
 MODULE_INFO="$PRODUCT_OUT/module-info.json"
 
 REPO="tzn5-web/adfree-tizen-q60r"
-TOOLING_REF="218abf06e2c56905243940bf6cc3a4a2c9a927c6"
+TOOLING_REF="66cbb6e641868efe706d5b38e733eead67f1797f"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 REPORT="$HOME/TB8504_PRE_RECOVERY_${STAMP}"
 TOOLS="$REPORT/tools"
