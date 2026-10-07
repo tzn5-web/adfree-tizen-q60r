@@ -164,6 +164,17 @@ if [ "$MODULE_COUNT" -ne "$EXPECTED_MODULE_COUNT" ]; then
     exit $?
 fi
 
+KERNEL_RELEASE_FILE="$KERNEL_OUT/include/config/kernel.release"
+if [ ! -s "$KERNEL_RELEASE_FILE" ]; then
+    fail 36 "kernel.release missing from kernel build"
+    exit $?
+fi
+KERNEL_RELEASE="$(cat "$KERNEL_RELEASE_FILE")"
+if [ -z "$KERNEL_RELEASE" ]; then
+    fail 36 "kernel.release is empty"
+    exit $?
+fi
+
 SIGNING_CERT="$KERNEL_OUT/signing_key.x509"
 if [ ! -s "$SIGNING_CERT" ]; then
     fail 36 "public module-signing certificate missing from kernel build"
@@ -180,6 +191,7 @@ fi
 cp -f "$IMAGE" "$ARTIFACT_DIR/Image.gz-dtb"
 cp -f "$DTB" "$ARTIFACT_DIR/$EXPECTED_DTB"
 cp -f "$CONFIG" "$ARTIFACT_DIR/kernel.config"
+cp -f "$KERNEL_RELEASE_FILE" "$ARTIFACT_DIR/kernel.release"
 cp -f "$SIGNING_CERT" "$ARTIFACT_DIR/module-signing.x509"
 mkdir -p "$ARTIFACT_DIR/modules"
 find "$MODULES_OUT" -type f -name '*.ko' -exec cp -f {} "$ARTIFACT_DIR/modules/" \;
@@ -204,6 +216,7 @@ fi
     echo "DTB=$EXPECTED_DTB"
     echo "DTB_SIZE=$DTB_SIZE"
     echo "MODULE_COUNT=$MODULE_COUNT"
+    echo "KERNEL_RELEASE=$KERNEL_RELEASE"
     echo "MODULE_SIGNING_CERT_SHA256=$(sha256sum "$ARTIFACT_DIR/module-signing.x509" | awk '{print $1}')"
     echo "PRIVATE_SIGNING_KEY_EXPORTED=NO"
     echo "BOOT_PARTITION_SIZE=$BOOT_PARTITION_SIZE"
