@@ -448,11 +448,20 @@ class Autopilot:
                     }
                 )
 
+        local_manifests = self.root / ".repo/local_manifests"
+        local_manifests_sha = (
+            self.hash_plain_tree(local_manifests)
+            if local_manifests.is_dir()
+            else hashlib.sha256(b"").hexdigest()
+        )
+        h.update(b"LOCAL_MANIFESTS\0" + local_manifests_sha.encode("ascii") + b"\0")
+
         digest = h.hexdigest()
         self.workspace_revision_fingerprint = digest
         report = {
             "project_count": len(projects),
             "revision_fingerprint": digest,
+            "local_manifests_sha256": local_manifests_sha,
             "allowed_dirty_repos": sorted(allowed_dirty),
             "unexpected_dirty_repos": unexpected_dirty,
             "projects": rows,
@@ -463,6 +472,7 @@ class Autopilot:
         )
         self.say(f"WORKSPACE_PROJECT_COUNT={len(projects)}")
         self.say(f"WORKSPACE_REVISION_FINGERPRINT={digest}")
+        self.say(f"LOCAL_MANIFESTS_SHA256={local_manifests_sha}")
         self.say(f"WORKSPACE_UNEXPECTED_DIRTY={len(unexpected_dirty)}")
         if unexpected_dirty:
             raise StopAutopilot(
