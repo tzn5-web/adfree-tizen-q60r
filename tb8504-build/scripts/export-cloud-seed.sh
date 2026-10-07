@@ -379,40 +379,70 @@ if [ "$RC" -eq 0 ]; then
 fi
 
 DRAFT_RELEASE_TAG=""
+STAGE8N_REQUEST_PATH=""
+STAGE8N_REQUEST_COMMIT=""
 
 if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
     if ! command -v gh >/dev/null 2>&1; then
-        warn "gh CLI unavailable; draft release upload skipped"
+        fail "gh CLI unavailable; requested seed handoff cannot continue"
     elif ! gh auth status >/dev/null 2>&1; then
-        warn "gh CLI is not authenticated; draft release upload skipped"
+        fail "gh CLI is not authenticated; requested seed handoff cannot continue"
     else
-        TARGET_HEAD="$(
-            gh api --method GET "repos/$GITHUB_REPO/branches/$GITHUB_TARGET"                 --jq '.commit.sha' 2>/dev/null
-        )"
+        TARGET_HEAD="$(gh api --method GET "repos/$GITHUB_REPO/branches/$GITHUB_TARGET" --jq '.commit.sha' 2>/dev/null)"
         if [ -z "$TARGET_HEAD" ]; then
             fail "cannot resolve target branch head before seed handoff"
         elif [ "$TARGET_HEAD" != "$TOOLING_REF" ]; then
             fail "target branch moved since tooling pin: $TARGET_HEAD != $TOOLING_REF"
         else
             DRAFT_RELEASE_TAG="tb8504-cloud-seed-$STAMP"
-            gh release create "$DRAFT_RELEASE_TAG" "$ARCHIVE#TB8504 cloud seed"             --repo "$GITHUB_REPO"             --target "$GITHUB_TARGET"             --draft             --title "TB8504 Android 16 cloud seed $STAMP"             --notes "Private draft seed for the audited TB8504 cloud build lane. Do not publish."
+            gh release create "$DRAFT_RELEASE_TAG" "$ARCHIVE#TB8504 cloud seed" \
+                --repo "$GITHUB_REPO" \
+                --target "$TOOLING_REF" \
+                --draft \
+                --title "TB8504 Android 16 cloud seed $STAMP" \
+                --notes "Private draft seed for the audited TB8504 cloud build lane. Do not publish."
             GH_RC=$?
             if [ "$GH_RC" -ne 0 ]; then
                 fail "draft release upload failed rc=$GH_RC"
             else
-            SEED_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
-            REQUEST_PATH="tb8504-build/requests/live/stage8n-$STAMP.txt"
-            REQUEST_BODY="$(printf 'SEED_RELEASE_TAG=%s\nSEED_ZIP_SHA256=%s\nTOOLING_REF=%s\n' "$DRAFT_RELEASE_TAG" "$SEED_SHA256" "$TOOLING_REF")"
-            REQUEST_B64="$(printf '%s' "$REQUEST_BODY" | base64 -w0)"
+                SEED_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
+                STAGE8N_REQUEST_PATH="tb8504-build/requests/live/stage8n-$STAMP.txt"
+                REQUEST_BODY="$(printf 'SEED_RELEASE_TAG=%s\nSEED_ZIP_SHA256=%s\n' "$DRAFT_RELEASE_TAG" "$SEED_SHA256")"
 
-            gh api --method PUT "repos/$GITHUB_REPO/contents/$REQUEST_PATH" -f message="tb8504: request cloud STAGE8N audit $STAMP" -f content="$REQUEST_B64" -f branch="$GITHUB_TARGET" >/dev/null
-            REQUEST_RC=$?
+                BLOB_SHA="$(gh api --method POST "repos/$GITHUB_REPO/git/blobs" \
+                    -f content="$REQUEST_BODY" -f encoding="utf-8" --jq '.sha')"
+                BASE_TREE="$(gh api --method GET "repos/$GITHUB_REPO/git/commits/$TOOLING_REF" --jq '.tree.sha')"
+                TREE_SHA="$(gh api --method POST "repos/$GITHUB_REPO/git/trees" \
+                    -f base_tree="$BASE_TREE" \
+                    -f "tree[][path]=$STAGE8N_REQUEST_PATH" \
+                    -f "tree[][mode]=100644" \
+                    -f "tree[][type]=blob" \
+                    -f "tree[][sha]=$BLOB_SHA" --jq '.sha')"
+                STAGE8N_REQUEST_COMMIT="$(gh api --method POST "repos/$GITHUB_REPO/git/commits" \
+                    -f message="tb8504: request cloud STAGE8N audit $STAMP" \
+                    -f tree="$TREE_SHA" \
+                    -f "parents[]=$TOOLING_REF" --jq '.sha')"
 
-            if [ "$REQUEST_RC" -ne 0 ]; then
-                fail "STAGE8N request commit failed rc=$REQUEST_RC"
-            else
-                echo "STAGE8N_REQUEST_PATH=$REQUEST_PATH"
-            fi
+                if [ -z "$BLOB_SHA" ] || [ -z "$BASE_TREE" ] || [ -z "$TREE_SHA" ] || [ -z "$STAGE8N_REQUEST_COMMIT" ]; then
+                    fail "failed to construct immutable STAGE8N request commit"
+                else
+                    gh api --method PATCH "repos/$GITHUB_REPO/git/refs/heads/$GITHUB_TARGET" \
+                        -f sha="$STAGE8N_REQUEST_COMMIT" -F force=false >/dev/null
+                    REQUEST_RC=$?
+                    if [ "$REQUEST_RC" -ne 0 ]; then
+                        fail "STAGE8N request ref update failed; branch moved or update was rejected"
+                    else
+                        ACTUAL_PARENT="$(gh api --method GET "repos/$GITHUB_REPO/git/commits/$STAGE8N_REQUEST_COMMIT" --jq '.parents[0].sha')"
+                        if [ "$ACTUAL_PARENT" != "$TOOLING_REF" ]; then
+                            fail "STAGE8N request parent mismatch: $ACTUAL_PARENT != $TOOLING_REF"
+                        else
+                            echo "STAGE8N_REQUEST_PATH=$STAGE8N_REQUEST_PATH"
+                            echo "STAGE8N_REQUEST_COMMIT=$STAGE8N_REQUEST_COMMIT"
+                            echo "STAGE8N_REQUEST_PARENT=$ACTUAL_PARENT"
+                            echo "STAGE8N_HANDOFF_PROVENANCE=PASS"
+                        fi
+                    fi
+                fi
             fi
         fi
     fi
