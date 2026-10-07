@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "project": "Lenovo TB8504 Android 16 / LineageOS 23.2 staged bring-up",
+  "generated_from_audited_history": "2026-10-07",
+  "safety_contract": {
+    "no_adb": true,
+    "no_fastboot": true,
+    "no_flash": true,
+    "no_device_block_writes": true,
+    "no_clean": true,
+    "no_installclean": true,
+    "no_clobber": true,
+    "no_private_signing_key_export": true,
+    "unknown_error_policy": "STOP_WITH_DIAGNOSTIC_BUNDLE",
+    "known_error_policy": "APPLY_ONLY_PREVALIDATED_HANDLER_THEN_REAUDIT"
+  },
+  "workspace": {
+    "default_root": "/home/dre/android16-tb8504/lineage-23.2",
+    "product_out": "out/target/product/TB8504",
+    "device_tree": "device/lenovo/TB8504",
+    "vendor_tree": "vendor/lenovo/TB8504",
+    "kernel_tree": "kernel/lenovo/msm8917"
+  },
+  "release_identity": {
+    "product": "lineage_TB8504",
+    "release": "trunk_staging",
+    "variant": "userdebug",
+    "platform": "Android 16",
+    "platform_sdk": 36,
+    "lineage": "23.2",
+    "reason": "Android 16 lunch requires product/release/variant. bp1a configured the wrong platform state and previously triggered SDK/config incompatibility."
+  },
+  "source_baselines": {
+    "device": {
+      "repo": "TB8504/device_lenovo_TB8504-old",
+      "sha": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b"
+    },
+    "vendor": {
+      "repo": "TB8504/vendor_lenovo_TB8504",
+      "sha": "34690afc7eff4fc5223f4f2882c2054fcddcf986"
+    },
+    "kernel": {
+      "repo": "lenovo-msm8917/kernel_lenovo_msm8917",
+      "ref": "lineage-21.0",
+      "sha": "d242d540d9f5328919e189235e74e433418f6d81",
+      "defconfig": "lineageos_tb8504_defconfig",
+      "toolchain": "Lineage GCC aarch64 4.9",
+      "toolchain_sha": "5e030eafe024784a73cdf47e6936ac0dbfc763dc"
+    }
+  },
+  "partition_contract": {
+    "boot_bytes": 67108864,
+    "recovery_bytes": 67108864,
+    "system_bytes": 4080218112,
+    "userdata_bytes": 9921059840,
+    "page_size": 2048,
+    "kernel_addr": "0x80008000",
+    "ramdisk_addr": "0x81000000",
+    "tags_addr": "0x80000100",
+    "boot_header_version": 0,
+    "vendor_partition_assumption": "DO_NOT_ASSUME",
+    "vendor_topology_observation": "Baseline BoardConfigVendor.mk is empty and fstab.qcom has no /vendor mount. Detect actual build topology before attempting vendorimage; vendor may live under /system/vendor."
+  },
+  "cloud_seed": {
+    "release_tag": "tb8504-cloud-seed-20261007_082702",
+    "zip_sha256": "cb229cf709ba3ba66f0a4bb18678923730e421b2dfe4223d59d22d74bf719651",
+    "zip_windows_path": "C:\\Users\\ion94\\Desktop\\TB8504_CLOUD_SEED_20261007_082702.zip",
+    "boot_seed_present": true,
+    "recovery_seed_present": false,
+    "boot_seed_sha256": "09432d14b103881fe9d4940edf2175a7ec7118aea7dcda87cf33f38b6254bac3",
+    "integrity": "97 ZIP entries; testzip clean; 96/96 SHA256SUMS verified; no credential-pattern findings"
+  },
+  "kernel_and_module_history": {
+    "expected_module_count": 12,
+    "expected_modules": [
+      "ansi_cprng.ko",
+      "backlight.ko",
+      "br_netfilter.ko",
+      "evbug.ko",
+      "generic_bl.ko",
+      "lcd.ko",
+      "mmc_block_test.ko",
+      "mmc_test.ko",
+      "rdbg.ko",
+      "test-iosched.ko",
+      "ufs_test.ko",
+      "wil6210.ko"
+    ],
+    "accepted_local_dirty_state": [
+      "scripts/sign-file legacy Perl compatibility parser modification",
+      "include/sound/Kbuild untracked with header-y += voice_params.h"
+    ],
+    "local_old_vermagic": "3.18.140-lineageos-gd242d540d9f5-dirty SMP preempt mod_unload modversions aarch64",
+    "cloud_old_vermagic": "3.18.140-lineageos-gd242d540 SMP preempt mod_unload modversions aarch64",
+    "local_signing_cert_sha256": "4b4c8c18a0110a17079e0ccba2fd8708ef7eaf09e5aad628e319e8262cbb8a8c",
+    "local_signing_ski": "5bacf37874921e41fb7d21544f76bb2e2bdf9eaf",
+    "local_signer": "Magrathea: Glacier signing key",
+    "cloud_signing_cert_sha256": "cd49fdafb443c85d25455057facc2df96d7053a7f823174e7d9f92bb09cd8d3d",
+    "cloud_signing_ski": "86a8b09f3f6d48a9900168becc64b66e34c70e89",
+    "critical_decision": "Never replace the local boot kernel/modules with cloud-built kernel/modules and never weaken signing coherence. Canonical final build is local so kernel and modules are built/signed together."
+  },
+  "historical_vintf_blockers": [
+    "android.hardware.audio.effect@5.0",
+    "android.hardware.audio@5.0",
+    "android.hardware.configstore@1.1",
+    "android.hardware.light@2.0",
+    "android.hardware.power@1.0",
+    "android.hardware.radio.deprecated@1.0 IOemHook slot1/slot2",
+    "android.hardware.vibrator@1.0",
+    "vendor.lineage.power@1.0",
+    "vendor.qti.hardware.perf@1.0"
+  ],
+  "historical_stage8n": {
+    "old_local": {
+      "dt_needed_edges": 5448,
+      "resolved_edges": 5402,
+      "unresolved_edges": 44,
+      "unresolved_unique_libs": 11,
+      "wrong_bitness_edges": 2,
+      "wrong_bitness_unique_libs": 2,
+      "hard_failures": 46
+    },
+    "cloud_converged": {
+      "unresolved_edges": 0,
+      "unresolved_unique_libs": 0,
+      "wrong_bitness_edges": 0,
+      "wrong_bitness_unique_libs": 0,
+      "gnss_bad_edges": 0
+    }
+  },
+  "runtime_cleanup_history": {
+    "new_cleanup_removed_services_count": 25,
+    "new_cleanup_removed_services": [
+      "iop",
+      "vendor.qmuxd",
+      "vendor.ipacm-diag",
+      "vendor.dataadpl",
+      "vendor.sensors",
+      "fstman",
+      "fstman_wlan0",
+      "wigighalsvc",
+      "wigignpt",
+      "ptt_ffbm",
+      "wifi_ftmd",
+      "wifi-sdio-on",
+      "wifi-crda",
+      "vendor.ssr_diag",
+      "diag_mdlog_start",
+      "diag_mdlog_stop",
+      "vm_bms",
+      "vendor.LKCore-dbg",
+      "vendor.LKCore-rel",
+      "poweroffhandler",
+      "vendor.hbtp",
+      "qcamerasvr",
+      "perfd",
+      "gamed",
+      "hbtp"
+    ],
+    "old_stage8l12_observation": "Backups showed a broader historical removal set (~70 services), so absence must never be inferred solely from the old no-install-rule audit.",
+    "camera": {
+      "removed_process_sdk_override": "/vendor/bin/mm-qcamera-daemon=23",
+      "cleared_stale_sepolicy": "device/lenovo/TB8504/sepolicy/mm-qcamerad.te",
+      "runtime_model": "legacy standalone camera daemon removed; camera HAL runs in-process"
+    },
+    "wfd": {
+      "removed_vintf_hal": "com.qualcomm.qti.wifidisplayhal",
+      "removed_modules": ["WfdService", "WfdCommon"],
+      "disabled_framework_flags": [
+        "config_enableWifiDisplay",
+        "config_wifiDisplaySupportsProtectedBuffers"
+      ],
+      "removed_stale_policy": [
+        "com.qualcomm.wfd.client hidden-api whitelist",
+        "com.qualcomm.wfd.service hidden-api whitelist",
+        "com.qualcomm.wfd.service privapp permissions",
+        "persist.sys.wfd.virtual",
+        "fstman.ini copy"
+      ],
+      "reason": "Java/app remnants were left after backend removal and were not visible to ELF-only audits."
+    },
+    "ims": {
+      "restored_services": [
+        "vendor.imsqmidaemon",
+        "vendor.imsdatadaemon",
+        "vendor.ims_rtp_daemon",
+        "vendor.imsrcsservice"
+      ],
+      "executables": [
+        "imsqmidaemon",
+        "imsdatadaemon",
+        "ims_rtp_daemon",
+        "imsrcsd"
+      ],
+      "reason": "The old cleanup removed init definitions even though proprietary executables and runtime/VINTF contracts were still present.",
+      "selinux_baseline_verified": true
+    },
+    "stale_control_references_removed": 15,
+    "shell_syntax_gate": "All transformed rootdir shell scripts must pass bash -n."
+  },
+  "known_build_failures_and_fixes": [
+    {
+      "symptom": "build/envsetup.sh: TOP: unbound variable",
+      "cause": "Running Android envsetup under set -u",
+      "fix": "Disable nounset before sourcing build/envsetup.sh; retain -e and pipefail outside envsetup."
+    },
+    {
+      "symptom": "Invalid lunch combo: lineage_TB8504-userdebug",
+      "cause": "Android 16 lunch format requires product, release, variant",
+      "fix": "lunch lineage_TB8504 trunk_staging userdebug"
+    },
+    {
+      "symptom": "bp1a selected and SDK/platform configuration mismatch",
+      "cause": "Wrong release config selection",
+      "fix": "Pin trunk_staging and verify PLATFORM_SDK_VERSION=36, PLATFORM_VERSION=16*, LINEAGE_VERSION=23.2-*."
+    },
+    {
+      "symptom": "Key \"PRIVATE_BUILD_DESC\" isn't a valid prop override",
+      "cause": "Legacy PRODUCT_BUILD_PROP_OVERRIDES key rejected by Android 16 gen_build_prop",
+      "fix": "Migrate PRIVATE_BUILD_DESC to BuildDesc."
+    },
+    {
+      "symptom": "TARGET_DEVICE legacy product override",
+      "cause": "Legacy product build override name",
+      "fix": "Migrate TARGET_DEVICE to DeviceName while preserving stock BUILD_FINGERPRINT."
+    },
+    {
+      "symptom": "Residual cleanup fails on WfdService/WfdCommon found 0 on a second run",
+      "cause": "Old helper was not idempotent and local runner was pinned to an obsolete tooling ref",
+      "fix": "Use current idempotent helper set and prove second-run ALREADY_APPLIED/CHANGED_FILES=0."
+    },
+    {
+      "symptom": "Runner prints literal ${1:-...} or ${PIPESTATUS[0]}",
+      "cause": "Escaped shell expansion leaked into generated runner",
+      "fix": "Reject runner/tool files containing unintended escaped shell expansions; lint with bash -n."
+    },
+    {
+      "symptom": "depmod warnings for modules.order/modules.builtin/modules.builtin.modinfo under depmod_vendor_intermediates/lib/modules/0.0",
+      "classification": "WARNING_UNLESS_MODULE_AUDIT_FAILS",
+      "fix": "Do not fail solely on those warnings. Require expected 12 .ko set, modules.dep, coherent module signatures, and image/kernel match."
+    },
+    {
+      "symptom": "Cloud boot repack signing mismatch",
+      "cause": "Cloud kernel/modules were signed with a different certificate than the local canonical build",
+      "fix": "Do not weaken signing gate. Build canonical kernel/modules/images together locally."
+    },
+    {
+      "symptom": "Full mka bacon takes hours and exposes errors late",
+      "cause": "Using full ROM build as an intermediate diagnostic",
+      "fix": "Build staged targets and audit each layer first; run bacon only after staged gates pass."
+    }
+  ],
+  "successful_artifacts": {
+    "boot_earlier": {
+      "status": "PASS_BUT_SUPERSEDED_BY_LATER_SOURCE_CHANGES",
+      "build_time": "00:05:00",
+      "note": "Boot passed structural/kernel audit before later IMS/WFD/product-compat source changes. A fresh boot rebuild is required before treating boot as final."
+    },
+    "recovery_current": {
+      "status": "PASS",
+      "built_at_local_report": "/home/dre/TB8504_RECOVERY_STAGE_20261007_111728",
+      "build_time": "00:17:23",
+      "size": 42618880,
+      "sha256": "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725ddd91cb8e61",
+      "kernel_size": 28490895,
+      "kernel_sha256": "6dcb32cde2d172b7e4467cc9015ccb6c292668f2155f1749ac2e186d0c4577fe",
+      "ramdisk_size": 14123257,
+      "kernel_match": true,
+      "fstab_contract": "PASS",
+      "init_contract": "PASS",
+      "header_version": 0,
+      "page_size": 2048,
+      "no_flash": true
+    }
+  },
+  "workflow_history": {
+    "stage8n_strict_latest_known": "SUCCESS",
+    "stage8n_idempotency_gate": "SUCCESS",
+    "lint_latest_known": "SUCCESS",
+    "important_rule": "Source-side PASS is not final authority for produced images. Built artifacts in out/ must be audited after each build."
+  },
+  "autopilot_policy": {
+    "default_goal": "next",
+    "supported_goals": [
+      "converge",
+      "boot",
+      "recovery",
+      "next",
+      "system",
+      "rom"
+    ],
+    "stage_order": [
+      "source_convergence",
+      "boot",
+      "recovery",
+      "detect_partition_topology",
+      "vendor_if_real_partition",
+      "system",
+      "full_rom",
+      "postbuild_output_audit"
+    ],
+    "retry_policy": {
+      "max_same_handler_uses": 1,
+      "max_build_attempts_per_target": 3,
+      "never_retry_unknown_error": true
+    },
+    "final_authority": "Actual built output plus post-build audits; never source audit alone."
+  }
+}
