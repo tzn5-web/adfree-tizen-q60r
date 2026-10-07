@@ -292,6 +292,7 @@ done
 {
     echo "EXPORT_ROOT=$ROOT"
     echo "CREATED_AT=$(date -Iseconds)"
+    echo "SEED_FORMAT_VERSION=2"
     echo "NO_BUILD=YES"
     echo "NO_FLASH=YES"
     echo "EXPECTED_BOOT_SIZE=67108864"
