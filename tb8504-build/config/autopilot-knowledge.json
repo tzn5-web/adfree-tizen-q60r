@@ -379,7 +379,14 @@
       "static build-critical repository provenance is bound to exported patch bytes and rechecked against approved knowledge contracts before promotion",
       "provenance promotion is allowed only after all STAGE8N gates pass and while the branch still points at the immutable request commit",
       "GPS provenance is git-backed only; non-git GPS trees are rejected before export because the canonical seed requires per-repo HEAD/patch/status metadata"
-    ]
+    ],
+    "tooling_ci_gate": {
+      "workflow": "TB8504 cloud lane lint",
+      "required_status": "completed",
+      "required_conclusion": "success",
+      "binding": "exact TOOLING_REF SHA",
+      "policy": "Every local autopilot run refuses tooling that has not passed the lint workflow at the exact immutable GitHub commit."
+    }
   },
   "source_integrity_contracts": {
     "static_target_repos": {
