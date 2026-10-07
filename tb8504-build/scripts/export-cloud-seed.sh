@@ -12,6 +12,7 @@ ZIP_NAME="TB8504_CLOUD_SEED_$STAMP.zip"
 UPLOAD_DRAFT="${TB8504_UPLOAD_DRAFT:-0}"
 GITHUB_REPO="${TB8504_GITHUB_REPO:-tzn5-web/adfree-tizen-q60r}"
 GITHUB_TARGET="${TB8504_GITHUB_TARGET:-tb8504-android16-build}"
+TOOLING_REF="${TB8504_TOOLING_REF:-$GITHUB_TARGET}"
 
 mkdir -p "$OUT/patches" "$OUT/commits" "$OUT/untracked" "$OUT/meta" "$OUT/seeds" "$OUT/installed-modules"
 RC=0
@@ -293,6 +294,7 @@ done
     echo "EXPORT_ROOT=$ROOT"
     echo "CREATED_AT=$(date -Iseconds)"
     echo "SEED_FORMAT_VERSION=2"
+    echo "TOOLING_REF=$TOOLING_REF"
     echo "NO_BUILD=YES"
     echo "NO_FLASH=YES"
     echo "EXPECTED_BOOT_SIZE=67108864"
@@ -359,7 +361,7 @@ fi
 # Run the same seed auditor locally before any optional upload.
 if [ "$RC" -eq 0 ]; then
     AUDITOR_TMP="/tmp/TB8504_audit_cloud_seed.py"
-    AUDITOR_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$GITHUB_TARGET/tb8504-build/scripts/audit-cloud-seed.py"
+    AUDITOR_URL="https://raw.githubusercontent.com/$GITHUB_REPO/$TOOLING_REF/tb8504-build/scripts/audit-cloud-seed.py"
 
     if ! command -v curl >/dev/null 2>&1; then
         fail "curl unavailable; cannot perform mandatory local seed audit"
