@@ -1,0 +1,180 @@
+name: TB8504 STAGE8N source ELF audit
+
+on:
+  push:
+    branches:
+      - tb8504-android16-build
+    paths:
+      - "tb8504-build/requests/live/stage8n-*.txt"
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: tb8504-stage8n-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stage8n:
+    name: Reconstruct exported source state and audit ELF dependencies
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout exact request commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      - name: Read triggering STAGE8N request
+        shell: bash
+        run: |
+          set -o pipefail
+          mapfile -t REQUESTS < <(
+            git diff-tree --root --no-commit-id --name-only -r "$GITHUB_SHA" |
+              grep -E '^tb8504-build/requests/live/stage8n-[A-Za-z0-9._-]+[.]txt$' || true
+          )
+          if [ "${#REQUESTS[@]}" -ne 1 ]; then
+            echo "Expected exactly one STAGE8N request; found ${#REQUESTS[@]}" >&2
+            exit 2
+          fi
+          REQUEST="${REQUESTS[0]}"
+          if grep -Ev '^(SEED_RELEASE_TAG|SEED_ZIP_SHA256)=[A-Za-z0-9._:-]+$' "$REQUEST" | grep -q .; then
+            echo "Invalid STAGE8N request syntax" >&2
+            cat "$REQUEST" >&2
+            exit 3
+          fi
+          source "$REQUEST"
+          if [ -z "${SEED_RELEASE_TAG:-}" ] || ! [[ "${SEED_ZIP_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid seed request metadata" >&2
+            exit 4
+          fi
+          echo "SEED_RELEASE_TAG=$SEED_RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "EXPECTED_SEED_ZIP_SHA256=$SEED_ZIP_SHA256" >> "$GITHUB_ENV"
+
+      - name: Static safety audit
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m py_compile \
+            tb8504-build/scripts/audit-cloud-seed.py \
+            tb8504-build/scripts/audit-stage8n.py
+          ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' \
+            tb8504-build/scripts/audit-stage8n.py \
+            tb8504-build/config/stage8n.env
+          ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' \
+            tb8504-build/scripts/audit-stage8n.py
+
+      - name: Download private audited seed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/tb8504-stage8n/seed
+          gh release view "$SEED_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,tagName \
+            --jq '.isDraft, .tagName' |
+            tee /tmp/tb8504-stage8n/release-info.txt
+          grep -Fx 'true' /tmp/tb8504-stage8n/release-info.txt
+          grep -Fx "$SEED_RELEASE_TAG" /tmp/tb8504-stage8n/release-info.txt
+          gh release download "$SEED_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'TB8504_CLOUD_SEED_*.zip' \
+            --dir /tmp/tb8504-stage8n/seed
+          mapfile -t SEEDS < <(find /tmp/tb8504-stage8n/seed -maxdepth 1 -type f -name 'TB8504_CLOUD_SEED_*.zip' -print)
+          if [ "${#SEEDS[@]}" -ne 1 ]; then
+            echo "Expected exactly one seed ZIP; found ${#SEEDS[@]}" >&2
+            exit 5
+          fi
+          ACTUAL="$(sha256sum "${SEEDS[0]}" | awk '{print $1}')"
+          [ "$ACTUAL" = "$EXPECTED_SEED_ZIP_SHA256" ] || {
+            echo "Seed SHA256 mismatch" >&2
+            exit 6
+          }
+          echo "SEED_ZIP=${SEEDS[0]}" >> "$GITHUB_ENV"
+
+      - name: Re-audit seed and extract exported state
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/tb8504-stage8n/reconstructed /tmp/tb8504-stage8n/report
+          python3 tb8504-build/scripts/audit-cloud-seed.py "$SEED_ZIP" \
+            2>&1 | tee /tmp/tb8504-stage8n/report/seed-audit.txt
+          SEED_RC=${PIPESTATUS[0]}
+          [ "$SEED_RC" -eq 0 ] || exit "$SEED_RC"
+          python3 - "$SEED_ZIP" /tmp/tb8504-stage8n/reconstructed <<'PY'
+          import sys, tarfile, zipfile
+          from pathlib import Path
+          seed = Path(sys.argv[1])
+          root = Path(sys.argv[2])
+          root.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(seed) as z:
+              for name in (
+                  "device_lenovo_TB8504.tar.gz",
+                  "patches/vendor__lenovo__TB8504.patch",
+              ):
+                  (root / Path(name).name).write_bytes(z.read(name))
+          device_root = root / "device"
+          device_root.mkdir(exist_ok=True)
+          with tarfile.open(root / "device_lenovo_TB8504.tar.gz", "r:gz") as tf:
+              tf.extractall(device_root)
+          PY
+          test -f /tmp/tb8504-stage8n/reconstructed/device/TB8504/BoardConfig.mk
+          test -f /tmp/tb8504-stage8n/reconstructed/vendor__lenovo__TB8504.patch
+
+      - name: Reconstruct exact patched vendor tree
+        shell: bash
+        run: |
+          set -o pipefail
+          source tb8504-build/config/stage8n.env
+          VENDOR=/tmp/tb8504-stage8n/reconstructed/vendor
+          git init -q "$VENDOR"
+          git -C "$VENDOR" remote add origin "$VENDOR_REPO"
+          git -C "$VENDOR" fetch -q --depth 1 origin "$VENDOR_SHA"
+          git -C "$VENDOR" checkout -q --detach FETCH_HEAD
+          ACTUAL="$(git -C "$VENDOR" rev-parse HEAD)"
+          [ "$ACTUAL" = "$VENDOR_SHA" ] || {
+            echo "Vendor baseline mismatch: $ACTUAL != $VENDOR_SHA" >&2
+            exit 10
+          }
+          git -C "$VENDOR" apply --check /tmp/tb8504-stage8n/reconstructed/vendor__lenovo__TB8504.patch
+          git -C "$VENDOR" apply /tmp/tb8504-stage8n/reconstructed/vendor__lenovo__TB8504.patch
+          git -C "$VENDOR" status --short | tee /tmp/tb8504-stage8n/report/vendor-status.txt
+          grep -Fx ' M TB8504-vendor.mk' /tmp/tb8504-stage8n/report/vendor-status.txt
+          test "$(wc -l < /tmp/tb8504-stage8n/report/vendor-status.txt)" -eq 1
+
+      - name: Audit post-cleanup ELF dependency graph
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/audit-stage8n.py \
+            --vendor /tmp/tb8504-stage8n/reconstructed/vendor \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --report-dir /tmp/tb8504-stage8n/report \
+            2>&1 | tee /tmp/tb8504-stage8n/report/FULL.log
+          RC=${PIPESTATUS[0]}
+          echo "STAGE8N_AUDIT_RC=$RC" | tee /tmp/tb8504-stage8n/report/STATUS.txt
+          exit "$RC"
+
+      - name: Publish STAGE8N summary
+        if: always()
+        shell: bash
+        run: |
+          echo '## TB8504 STAGE8N source ELF audit' >> "$GITHUB_STEP_SUMMARY"
+          echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
+          [ ! -f /tmp/tb8504-stage8n/report/FULL.log ] || tail -n 160 /tmp/tb8504-stage8n/report/FULL.log >> "$GITHUB_STEP_SUMMARY"
+          echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload STAGE8N audit report
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4b
+        with:
+          name: TB8504-stage8n-audit-${{ github.run_number }}
+          path: /tmp/tb8504-stage8n/report/
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 6
