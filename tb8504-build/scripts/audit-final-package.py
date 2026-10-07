@@ -10,6 +10,9 @@ import zipfile
 from pathlib import Path
 
 DEVICE = "TB8504"
+OTA_DEVICE_ALIASES = {
+    "TB-8504X", "TB-8504F", "tb-8504x", "tb-8504f", "tb_8504",
+}
 SDK = "36"
 
 def fail(msg: str) -> None:
@@ -96,12 +99,21 @@ def main() -> int:
         if ota_type == "AB":
             fail("unexpected A/B OTA for non-A/B TB8504")
 
-        identity="\n".join([
-            meta.get("pre-device",""),
-            meta.get("post-build",""),
-        ])
-        if DEVICE not in identity:
-            fail(f"OTA metadata does not identify {DEVICE}")
+        pre_devices={
+            x.strip()
+            for x in re.split(r"[|,]",meta.get("pre-device",""))
+            if x.strip()
+        }
+        if not (pre_devices & OTA_DEVICE_ALIASES):
+            fail(
+                "OTA pre-device does not contain a supported TB8504 alias: "
+                f"{sorted(pre_devices)}"
+            )
+        if DEVICE not in meta.get("post-build",""):
+            fail(
+                f"OTA post-build fingerprint does not identify {DEVICE}: "
+                f"{meta.get('post-build','')}"
+            )
 
         if meta.get("post-sdk-level") and meta["post-sdk-level"] != SDK:
             fail(f"OTA metadata SDK mismatch: {meta.get('post-sdk-level')}")
@@ -130,12 +142,29 @@ def main() -> int:
             "payload.bin",
             "system.new.dat.br",
             "system.new.dat",
+            "system.new.dat.xz",
             "system.img",
             "super.img",
         }
         payload_hits=sorted(n for n in names if Path(n).name in update_payloads)
         if not payload_hits:
             fail("no recognizable system/update payload in ROM ZIP")
+
+        block_payloads=[
+            n for n in payload_hits
+            if Path(n).name in {
+                "system.new.dat.br","system.new.dat","system.new.dat.xz"
+            }
+        ]
+        if block_payloads:
+            transfer_lists=[
+                n for n in names if Path(n).name=="system.transfer.list"
+            ]
+            if len(transfer_lists)!=1:
+                fail(
+                    "block OTA system payload requires exactly one "
+                    f"system.transfer.list, found {len(transfer_lists)}"
+                )
 
         boot_entries=[n for n in names if Path(n).name=="boot.img"]
         if len(boot_entries) != 1:
@@ -178,7 +207,9 @@ def main() -> int:
             "OTA_TYPE":ota_type or "UNSPECIFIED_NON_AB",
             "POST_BUILD":meta.get("post-build",""),
             "POST_SDK_LEVEL":meta.get("post-sdk-level",""),
+            "PRE_DEVICE_ALIASES":",".join(sorted(pre_devices)),
             "PAYLOAD_MEMBERS":",".join(payload_hits),
+            "BLOCK_PAYLOAD_MEMBERS":",".join(block_payloads),
             "OTA_BOOT_SHA256":zip_boot_sha,
             "LOCAL_BOOT_SHA256":local_boot_sha,
             "FINAL_PACKAGE_AUDIT":"PASS",
