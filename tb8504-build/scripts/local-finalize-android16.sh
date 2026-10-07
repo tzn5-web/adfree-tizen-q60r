@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+
+# Historical/support runner. Normal operation must use tb8504-autopilot.py.
+if [ "${TB8504_ALLOW_LEGACY_RUNNER:-0}" != "1" ]; then
+    echo "LEGACY_RUNNER_LOCKED=YES" >&2
+    echo "Use tb8504-build/scripts/tb8504-autopilot.py as the single supported entry point." >&2
+    exit 64
+fi
 # TB8504 Android 16 local finalization gate.
 # Applies only the runtime cleanup already validated in GitHub, audits the
 # real local workspace, then performs the integrated LineageOS build.
