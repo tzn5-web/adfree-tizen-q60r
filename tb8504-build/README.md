@@ -2,6 +2,33 @@
 
 This branch is isolated from the Tizen project. It moves only safe, reproducible TB-8504F build work off the local PC.
 
+## Primary operating model
+
+The single supported local entry point is `scripts/tb8504-autopilot.py`.
+The older `local-*.sh` runners are retained only as historical/support tooling;
+they are not an alternate build procedure.
+
+The autopilot is fail-closed and staged:
+
+1. fetch one immutable tooling commit and its knowledge base;
+2. verify source HEADs and source-integrity contracts;
+3. apply only prevalidated idempotent source transforms;
+4. rerun product, residual, ELF and runtime-contract audits;
+5. compute and persist a source fingerprint;
+6. bind boot/recovery/system/vendor/ROM artifacts to that fingerprint;
+7. build only the next required stage;
+8. audit the actual built output and final OTA package;
+9. stop with a diagnostic bundle on an unknown condition.
+
+It never performs adb, fastboot, flashing, block-device writes, clean,
+installclean or clobber.
+
+At the current audit point, final builds are intentionally blocked until the
+local `hardware/qcom-caf/msm8996/gps` state and the post-convergence
+`device/lenovo/TB8504` + `vendor/lenovo/TB8504` fingerprints have been
+captured and explicitly accepted. `--goal converge` is the safe collection
+step and performs no Android build or device access.
+
 ## Cloud scope
 
 GitHub builds and audits:
@@ -62,10 +89,15 @@ The boot workflow refuses to repack until:
 - seed audit passes;
 - boot header is legacy v0 / page size 2048 with TB8504 load addresses;
 - the local kernel HEAD equals the pinned cloud kernel baseline;
-- no local kernel patch, local kernel commit bundle or kernel untracked file remains unreconciled;
-- the downloaded cloud kernel independently passes the current kernel auditor.
+- no local runtime-relevant kernel divergence remains; the two exact audited build-only differences (`scripts/sign-file` and `include/sound/Kbuild`) may be classified explicitly rather than silently ignored;
+- installed local modules are internally coherent with the local signing certificate;
+- the downloaded cloud kernel independently passes the current kernel auditor;
+- cloud/local signing identity must match before any cloud repack is allowed.
 
-Only then does it replace the kernel in the proven boot seed.
+Only then would it replace the kernel in the proven boot seed. The current
+cloud kernel uses a different module-signing identity than the canonical local
+Android build, so this gate correctly blocks the repack. Final kernel, modules
+and images therefore remain a local integrated-build responsibility.
 
 ## Boot repack invariants
 
