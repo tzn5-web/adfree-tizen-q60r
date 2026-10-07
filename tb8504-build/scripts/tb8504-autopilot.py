@@ -2159,6 +2159,7 @@ def static_self_test() -> None:
         "gps-source-state.json",
         "primary-source-state.json",
         "PROVENANCE_CAPTURED=YES",
+        "untracked symlink unsupported by canonical seed",
     ):
         if guard not in exporter_text:
             raise RuntimeError(
@@ -2175,6 +2176,8 @@ def static_self_test() -> None:
         "PROVENANCE_ACCEPTANCE_CANDIDATE=PASS",
         "PROVENANCE_ACCEPTED_AFTER_STAGE8N",
         "workspace_revision_fingerprint",
+        "verify_untracked_seed",
+        "untracked seed coverage mismatch",
     ):
         if guard not in provenance_text:
             raise RuntimeError(
