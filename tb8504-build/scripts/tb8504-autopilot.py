@@ -1047,9 +1047,13 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.say(f"VENDOR_PARTITION_SIZE={numeric}")
         self.say(f"FSTAB_VENDOR_MOUNT={'YES' if has_vendor_mount else 'NO'}")
         self.say(f"SEPARATE_VENDOR_PARTITION={'YES' if separate else 'NO'}")
-        if not separate:
-            self.say("VENDOR_TOPOLOGY=INTEGRATED_OR_SYSTEM_VENDOR")
-        return separate
+        if separate:
+            raise StopAutopilot(
+                "unexpected separate vendor partition: TB8504 physical layout "
+                "requires integrated system/vendor"
+            )
+        self.say("VENDOR_TOPOLOGY=INTEGRATED_SYSTEM_VENDOR")
+        return False
 
     def sha_file(self, path: Path) -> str:
         h = hashlib.sha256()
