@@ -97,8 +97,11 @@ def verify_untracked_seed(
         kind = str(row.get("type", ""))
         if kind != "file":
             die(f"unsupported untracked provenance type: {repo}:{rel}:{kind}")
+        mode = row.get("mode")
         size = row.get("size")
         digest = str(row.get("sha256", ""))
+        if not isinstance(mode, int) or mode < 0 or mode > 0o7777:
+            die(f"untracked file mode invalid: {repo}:{rel}")
         if not isinstance(size, int) or size < 0:
             die(f"untracked file size invalid: {repo}:{rel}")
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
@@ -107,12 +110,21 @@ def verify_untracked_seed(
         member = prefix + rel
         if member not in names:
             die(f"untracked file missing from seed: {repo}:{rel}")
+        info = z.getinfo(member)
+        zip_mode = (info.external_attr >> 16) & 0o7777
+        if zip_mode != mode:
+            die(
+                f"untracked file mode mismatch: {repo}:{rel}:"
+                f"{zip_mode:o}!={mode:o}"
+            )
         data = z.read(member)
         if len(data) != size or sha256_bytes(data) != digest:
             die(f"untracked file content mismatch: {repo}:{rel}")
         expected.add(member)
         h.update(
             b"F\0"
+            + str(mode).encode("ascii")
+            + b"\0"
             + str(size).encode("ascii")
             + b"\0"
             + digest.encode("ascii")
