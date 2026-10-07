@@ -688,8 +688,10 @@ class Autopilot:
                     }
                 )
             else:
-                actual_mode = "tree"
-                gps_report["tree_sha256"] = self.hash_plain_tree(gps)
+                raise StopAutopilot(
+                    f"GPS source must be a git worktree for canonical v2 "
+                    f"provenance/export: {gps_rel}"
+                )
 
         gps_report["mode"] = actual_mode
         if isinstance(gps_contract, dict) and gps_contract:
@@ -712,13 +714,11 @@ class Autopilot:
                     "untracked_manifest_sha256"
                 ):
                     raise StopAutopilot("GPS untracked fingerprint mismatch")
-            elif wanted_mode == "tree":
-                if gps_report.get("tree_sha256") != gps_contract.get(
-                    "tree_sha256"
-                ):
-                    raise StopAutopilot("GPS plain-tree fingerprint mismatch")
             elif wanted_mode != "absent":
-                raise StopAutopilot(f"unsupported GPS contract mode: {wanted_mode}")
+                raise StopAutopilot(
+                    f"unsupported GPS contract mode for canonical v2 seed: "
+                    f"{wanted_mode}"
+                )
             self.say(f"GPS_SOURCE_CONTRACT=PASS mode={wanted_mode}")
         else:
             self.unproven_sources.append(gps_rel)
