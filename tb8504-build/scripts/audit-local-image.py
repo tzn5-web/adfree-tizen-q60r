@@ -14,6 +14,31 @@ import tempfile
 from pathlib import Path
 
 PARTITION_LIMIT = 67108864
+EXPECTED_DTB = "tb8504-msm8917-pmi8937-qrd-sku5.dtb"
+REQUIRED_KERNEL_CONFIG = (
+    "CONFIG_MACH_LENOVO_TB8504=y",
+    "CONFIG_ARCH_MSM8937=y",
+    "CONFIG_EXT4_ENCRYPTION=y",
+    "CONFIG_FS_ENCRYPTION=y",
+    "CONFIG_KEYS=y",
+    "CONFIG_CRYPTO_AES=y",
+    "CONFIG_CRYPTO_XTS=y",
+    "CONFIG_CRYPTO_CTS=y",
+    "CONFIG_CRYPTO_CBC=y",
+    "CONFIG_CRYPTO_SHA256=y",
+    "CONFIG_MODULE_SIG=y",
+    "CONFIG_MODULE_SIG_FORCE=y",
+    "CONFIG_MODULE_SIG_ALL=y",
+)
+REQUIRED_CMDLINE_TOKENS = (
+    "console=null",
+    "androidboot.hardware=qcom",
+    "msm_rtb.filter=0x237",
+    "ehci-hcd.park=3",
+    "lpm_levels.sleep_disabled=1",
+    "androidboot.bootdevice=7824900.sdhci",
+    "loop.max_part=7",
+)
 EXPECTED_MODULES = {
     "ansi_cprng.ko", "backlight.ko", "br_netfilter.ko", "evbug.ko",
     "generic_bl.ko", "lcd.ko", "mmc_block_test.ko", "mmc_test.ko",
@@ -343,6 +368,23 @@ def main() -> int:
     if kernel_size <= 0 or ramdisk_size <= 0:
         fail("kernel or ramdisk payload is empty")
 
+    # Legacy v0 header stores cmdline at 64..575 and extra cmdline at
+    # 608..1631. Validate the hardware-critical tokens rather than trusting
+    # that mkbootimg inherited them correctly.
+    cmdline = (
+        data[64:576].split(b"\x00", 1)[0]
+        + b" "
+        + data[608:1632].split(b"\x00", 1)[0]
+    ).decode("ascii", "replace").strip()
+    print(f"BOOT_CMDLINE={cmdline}")
+    cmdline_tokens = set(cmdline.split())
+    missing_cmdline = [
+        token for token in REQUIRED_CMDLINE_TOKENS if token not in cmdline_tokens
+    ]
+    if missing_cmdline:
+        fail(f"required TB8504 kernel cmdline tokens missing: {missing_cmdline}")
+    print("BOOT_CMDLINE_CONTRACT=PASS")
+
     kernel_off = page_size
     ramdisk_off = page_size + align(kernel_size, page_size)
     kernel = data[kernel_off:kernel_off + kernel_size]
@@ -369,6 +411,30 @@ def main() -> int:
     if not match:
         fail(f"image kernel does not match current local kernel candidates: {candidate_rows}")
     print("IMAGE_KERNEL_MATCH=PASS")
+
+    kernel_obj = out / "obj/KERNEL_OBJ"
+    config = kernel_obj / ".config"
+    if not config.is_file():
+        fail(f"local kernel config missing: {config}")
+    config_lines = set(config.read_text("utf-8", errors="replace").splitlines())
+    missing_config = [
+        line for line in REQUIRED_KERNEL_CONFIG if line not in config_lines
+    ]
+    if missing_config:
+        fail(f"required local kernel config missing: {missing_config}")
+    print("LOCAL_KERNEL_CONFIG_AUDIT=PASS")
+
+    dtb_root = kernel_obj / "arch/arm64/boot/dts"
+    dtbs = sorted(dtb_root.rglob(EXPECTED_DTB)) if dtb_root.is_dir() else []
+    if len(dtbs) != 1 or not dtbs[0].is_file() or dtbs[0].stat().st_size <= 0:
+        fail(f"expected TB8504 DTB not uniquely present: {dtbs}")
+    dtb_data = dtbs[0].read_bytes()
+    print(f"LOCAL_DTB={dtbs[0]}")
+    print(f"LOCAL_DTB_SIZE={len(dtb_data)}")
+    print(f"LOCAL_DTB_SHA256={sha256(dtb_data)}")
+    if kernel.find(dtb_data) < 0:
+        fail("expected TB8504 DTB is not embedded in boot/recovery kernel payload")
+    print("LOCAL_DTB_EMBEDDED=PASS")
 
     cpio, compression = decompress_ramdisk(ramdisk, root)
     print(f"RAMDISK_COMPRESSION={compression}")
