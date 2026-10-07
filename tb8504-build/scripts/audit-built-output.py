@@ -56,6 +56,8 @@ PROHIBITED_OUTPUT_BASENAMES = {
 CONTROL_RE = re.compile(r"^\s*(?:start|stop|restart|enable|disable)\s+([^\s#;]+)")
 CTL_RE = re.compile(r"^\s*setprop\s+ctl\.(?:start|stop|restart)\s+([^\s#;]+)")
 SERVICE_RE = re.compile(r"^service\s+(\S+)\s+([^\s\\]+)")
+NEEDED_RE = re.compile(r"\\(NEEDED\\).*\\[([^\\]]+)\\]")
+SONAME_RE = re.compile(r"\\(SONAME\\).*\\[([^\\]]+)\\]")
 
 def fail(msg: str) -> None:
     print(f"BUILT_OUTPUT_AUDIT_FAIL={msg}")
@@ -150,6 +152,100 @@ def choose_vendor_root(out: Path, entries: list[tuple[str,str]]) -> Path:
     if scored[0][0] == 0:
         fail("no vendor root candidate contains generated copy destinations")
     return scored[0][1]
+
+
+def dynamic_info(path: Path) -> tuple[list[str], str | None]:
+    proc=subprocess.run(
+        ["readelf","-dW",str(path)],
+        text=True,capture_output=True,check=False,
+    )
+    if proc.returncode!=0:
+        fail(f"readelf dynamic audit failed: {path}: {proc.stderr.strip()}")
+    needed=NEEDED_RE.findall(proc.stdout)
+    sonames=SONAME_RE.findall(proc.stdout)
+    return needed,(sonames[-1] if sonames else None)
+
+def audit_actual_vendor_elf_dependencies(root: Path, out: Path) -> None:
+    """Re-audit DT_NEEDED on the proprietary ELF files actually installed.
+
+    Providers are discovered from all staged installed roots so this validates
+    the final product topology rather than trusting the source-side graph.
+    Resolution is bitness-sensitive and fail-closed.
+    """
+    vmk=root/"vendor/lenovo/TB8504/TB8504-vendor.mk"
+    entries=parse_vendor_copy_entries(vmk)
+    vendor_root=choose_vendor_root(out,entries)
+
+    providers={1:{},2:{}}
+    scanned=set()
+    for install_root in installed_roots(out):
+        for p in install_root.rglob("*"):
+            if not p.is_file() or p in scanned or not is_elf(p):
+                continue
+            scanned.add(p)
+            cls=elf_class(p)
+            if cls not in (1,2):
+                continue
+            needed,soname=dynamic_info(p)
+            names={p.name}
+            if soname:
+                names.add(soname)
+            for name in names:
+                providers[cls].setdefault(name,[]).append(str(p))
+
+    consumers=[]
+    for _src_rel,dst_rel in entries:
+        p=vendor_root/dst_rel
+        if not p.is_file() or not is_elf(p):
+            continue
+        cls=elf_class(p)
+        if cls not in (1,2):
+            fail(f"invalid installed ELF class: {p}")
+        needed,soname=dynamic_info(p)
+        consumers.append((p,cls,needed,soname))
+
+    total_edges=0
+    unresolved=[]
+    wrong=[]
+    for p,cls,needed,_soname in consumers:
+        other=2 if cls==1 else 1
+        for lib in needed:
+            total_edges+=1
+            if providers[cls].get(lib):
+                continue
+            if providers[other].get(lib):
+                wrong.append({
+                    "consumer":str(p),
+                    "class":32 if cls==1 else 64,
+                    "needed":lib,
+                    "opposite_providers":providers[other][lib][:8],
+                })
+            else:
+                unresolved.append({
+                    "consumer":str(p),
+                    "class":32 if cls==1 else 64,
+                    "needed":lib,
+                })
+
+    report={
+        "consumer_elfs":len(consumers),
+        "provider_elfs":len(scanned),
+        "dt_needed_edges":total_edges,
+        "unresolved_edges":len(unresolved),
+        "wrong_bitness_edges":len(wrong),
+        "unresolved":unresolved,
+        "wrong_bitness":wrong,
+    }
+    print(f"ACTUAL_VENDOR_ELF_CONSUMERS={report['consumer_elfs']}")
+    print(f"ACTUAL_OUTPUT_ELF_PROVIDERS={report['provider_elfs']}")
+    print(f"ACTUAL_OUTPUT_DT_NEEDED_EDGES={report['dt_needed_edges']}")
+    print(f"ACTUAL_OUTPUT_UNRESOLVED_EDGES={report['unresolved_edges']}")
+    print(f"ACTUAL_OUTPUT_WRONG_BITNESS_EDGES={report['wrong_bitness_edges']}")
+    if unresolved:
+        fail(f"actual output unresolved DT_NEEDED edges: {unresolved[:30]}")
+    if wrong:
+        fail(f"actual output wrong-bitness DT_NEEDED edges: {wrong[:30]}")
+    print("ACTUAL_OUTPUT_ELF_DEPENDENCY_AUDIT=PASS")
 
 def audit_vendor_copy(root: Path, out: Path) -> None:
     vmk=root/"vendor/lenovo/TB8504/TB8504-vendor.mk"
@@ -426,6 +522,7 @@ def main() -> int:
     print("=== TB8504 ACTUAL BUILT OUTPUT AUDIT ===")
     audit_build_props(out)
     audit_vendor_copy(root,out)
+    audit_actual_vendor_elf_dependencies(root,out)
     audit_runtime(out)
     audit_removed_outputs(out)
     audit_vintf(out)
