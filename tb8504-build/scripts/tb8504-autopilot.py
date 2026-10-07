@@ -306,7 +306,10 @@ class Autopilot:
         self.say("PREFLIGHT=PASS")
 
     def git_status(self, repo: Path) -> str:
-        return self.capture(["git", "status", "--short"], cwd=repo, check=False)
+        raw = self.git_raw(
+            repo, ["status", "--short", "--untracked-files=all"]
+        )
+        return raw.decode("utf-8", "surrogateescape").rstrip("\n")
 
     def git_raw(self, repo: Path, args: list[str]) -> bytes:
         printable = "git " + " ".join(args)
@@ -534,8 +537,10 @@ class Autopilot:
 
     def snapshot_sources(self, label: str) -> None:
         for name, repo in (("device", self.device), ("vendor", self.vendor), ("kernel", self.kernel)):
-            status = self.capture(["git", "status", "--short"], cwd=repo, check=False)
-            diff = self.capture(["git", "diff", "--binary"], cwd=repo, check=False)
+            status = self.git_status(repo)
+            diff = self.git_raw(repo, ["diff", "--binary", "HEAD"]).decode(
+                "utf-8", "replace"
+            ).rstrip("\n")
             (self.snapshots / f"{name}-{label}.status.txt").write_text(status + ("\n" if status else ""), encoding="utf-8")
             (self.snapshots / f"{name}-{label}.patch").write_text(diff + ("\n" if diff else ""), encoding="utf-8")
 
