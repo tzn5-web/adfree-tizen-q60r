@@ -386,12 +386,20 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
     elif ! gh auth status >/dev/null 2>&1; then
         warn "gh CLI is not authenticated; draft release upload skipped"
     else
-        DRAFT_RELEASE_TAG="tb8504-cloud-seed-$STAMP"
-        gh release create "$DRAFT_RELEASE_TAG" "$ARCHIVE#TB8504 cloud seed"             --repo "$GITHUB_REPO"             --target "$GITHUB_TARGET"             --draft             --title "TB8504 Android 16 cloud seed $STAMP"             --notes "Private draft seed for the audited TB8504 cloud build lane. Do not publish."
-        GH_RC=$?
-        if [ "$GH_RC" -ne 0 ]; then
-            fail "draft release upload failed rc=$GH_RC"
+        TARGET_HEAD="$(
+            gh api --method GET "repos/$GITHUB_REPO/branches/$GITHUB_TARGET"                 --jq '.commit.sha' 2>/dev/null
+        )"
+        if [ -z "$TARGET_HEAD" ]; then
+            fail "cannot resolve target branch head before seed handoff"
+        elif [ "$TARGET_HEAD" != "$TOOLING_REF" ]; then
+            fail "target branch moved since tooling pin: $TARGET_HEAD != $TOOLING_REF"
         else
+            DRAFT_RELEASE_TAG="tb8504-cloud-seed-$STAMP"
+            gh release create "$DRAFT_RELEASE_TAG" "$ARCHIVE#TB8504 cloud seed"             --repo "$GITHUB_REPO"             --target "$GITHUB_TARGET"             --draft             --title "TB8504 Android 16 cloud seed $STAMP"             --notes "Private draft seed for the audited TB8504 cloud build lane. Do not publish."
+            GH_RC=$?
+            if [ "$GH_RC" -ne 0 ]; then
+                fail "draft release upload failed rc=$GH_RC"
+            else
             SEED_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
             REQUEST_PATH="tb8504-build/requests/live/stage8n-$STAMP.txt"
             REQUEST_BODY="$(printf 'SEED_RELEASE_TAG=%s\nSEED_ZIP_SHA256=%s\nTOOLING_REF=%s\n' "$DRAFT_RELEASE_TAG" "$SEED_SHA256" "$TOOLING_REF")"
@@ -404,6 +412,7 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
                 fail "STAGE8N request commit failed rc=$REQUEST_RC"
             else
                 echo "STAGE8N_REQUEST_PATH=$REQUEST_PATH"
+            fi
             fi
         fi
     fi
