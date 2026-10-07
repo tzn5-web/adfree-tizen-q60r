@@ -1076,10 +1076,12 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.say("ANDROID16_RELEASE_IDENTITY=PASS")
 
     def refresh_module_metadata(self) -> None:
-        """Regenerate module-info.json after source convergence before builds."""
-        if self.goal == "converge":
-            self.export_converged_seed()
-            return
+        """Regenerate module-info.json after source convergence before builds.
+
+        For converge this is metadata generation only, not an Android image
+        build. The audited v2 seed is exported only after module-info has been
+        regenerated and runtime contracts have passed against that exact file.
+        """
         self.say("")
         self.say("=== REFRESH ANDROID MODULE METADATA ===")
         module_info = self.product_out / "module-info.json"
@@ -1139,6 +1141,9 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.save_state()
         self.say("MODULE_INFO_SOURCE_BINDING=PASS")
         self.say("RUNTIME_REFRESHED_MODULE_INFO_AUDIT=PASS")
+
+        if self.goal == "converge":
+            self.export_converged_seed()
 
     def export_converged_seed(self) -> Path:
         """Export an audited v2 seed from the exact converged source state.
