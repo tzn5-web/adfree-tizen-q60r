@@ -55,7 +55,7 @@ PLATFORM_PREFIXES = (
 
 FORBIDDEN_BASENAMES = {
     "wfdservice", "wifidisplayhalservice", "mm-qcamera-daemon",
-    "libOmxVideoDSMode.so", "libdsi_netctrl.so",
+    "libOmxVideoDSMode.so",
     "libmmcamera_llvd.so", "libmmcamera_quadracfa.so",
     "libmmcamera_trueportrait_lib.so",
 }
