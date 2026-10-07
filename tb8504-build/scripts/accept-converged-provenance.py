@@ -275,13 +275,10 @@ def main() -> int:
                 "patch_sha256": patch_sha,
                 "untracked_manifest_sha256": untracked_sha,
             }
-        elif mode == "tree":
-            tree_sha = str(gps.get("tree_sha256", ""))
-            if not re.fullmatch(r"[0-9a-f]{64}", tree_sha):
-                die("GPS tree fingerprint invalid")
-            gps_contract = {"mode": "tree", "tree_sha256": tree_sha}
         else:
-            die(f"GPS mode cannot be promoted: {mode!r}")
+            die(
+                f"GPS provenance must be git-backed before promotion: {mode!r}"
+            )
 
     contracts["gps_repo"] = gps_contract
     for rel in PRIMARY:
