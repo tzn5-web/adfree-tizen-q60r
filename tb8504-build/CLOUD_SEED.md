@@ -4,7 +4,7 @@ The Android 16 source modifications currently live in the local LineageOS 23.2 w
 
 ## Export
 
-Run `scripts/export-cloud-seed.sh` on the local workspace. It does **no build** and **no device access**.
+The supported entry point is `scripts/tb8504-autopilot.py --goal converge`. Add `--upload-seed` to perform the private GitHub handoff through the same orchestrator. The underlying exporter does **no Android image build** and **no device access**.
 
 The archive contains:
 
@@ -57,11 +57,12 @@ after the local autopilot records the actual GPS state.
 
 The binary seed is not committed to the public repository.
 
-With `TB8504_UPLOAD_DRAFT=1`, the exporter uses an authenticated `gh` CLI to:
+When `--upload-seed` is explicitly selected, the orchestrator enables the authenticated private handoff:
 
 1. upload the seed ZIP to a GitHub draft release;
 2. compute its SHA256;
-3. commit a small `tb8504-build/requests/boot-*.txt` request to the isolated branch.
+3. construct a small `tb8504-build/requests/live/stage8n-*.txt` request commit with direct parent equal to the pinned `TOOLING_REF`;
+4. advance the isolated branch only if that update is fast-forward.
 
 The request contains only:
 
