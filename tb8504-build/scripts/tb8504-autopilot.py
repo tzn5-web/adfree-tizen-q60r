@@ -2155,10 +2155,43 @@ def static_self_test() -> None:
         'parents[]=$TOOLING_REF',
         'force=false',
         'TOOLING_REF=$TOOLING_REF',
+        "workspace-source-state.json",
+        "gps-source-state.json",
+        "primary-source-state.json",
+        "PROVENANCE_CAPTURED=YES",
     ):
         if guard not in exporter_text:
             raise RuntimeError(
                 f"required seed-handoff provenance guard missing: {guard}"
+            )
+
+    provenance_helper = (
+        repo_root / "tb8504-build/scripts/accept-converged-provenance.py"
+    )
+    if not provenance_helper.is_file():
+        raise RuntimeError("provenance acceptance helper missing")
+    provenance_text = provenance_helper.read_text("utf-8", errors="replace")
+    for guard in (
+        "PROVENANCE_ACCEPTANCE_CANDIDATE=PASS",
+        "PROVENANCE_ACCEPTED_AFTER_STAGE8N",
+        "workspace_revision_fingerprint",
+    ):
+        if guard not in provenance_text:
+            raise RuntimeError(
+                f"required provenance acceptance guard missing: {guard}"
+            )
+
+    stage8n_workflow = (
+        repo_root / ".github/workflows/tb8504-stage8n.yml"
+    ).read_text("utf-8", errors="replace")
+    for guard in (
+        "SEED_TOOLING_REF=$EXPECTED_TOOLING_REF",
+        "accept-converged-provenance.py",
+        "PROVENANCE_KNOWLEDGE_PROMOTION=PASS",
+    ):
+        if guard not in stage8n_workflow:
+            raise RuntimeError(
+                f"required STAGE8N provenance gate missing: {guard}"
             )
 
     final_package_text = (
