@@ -168,10 +168,13 @@ def dynamic_info(path: Path) -> tuple[list[str], str | None]:
     return needed,(sonames[-1] if sonames else None)
 
 def audit_actual_vendor_elf_dependencies(root: Path, out: Path) -> None:
-    """Re-audit DT_NEEDED on the proprietary ELF files actually installed.
+    """Re-audit DT_NEEDED on every ELF actually installed in vendor.
 
     Providers are discovered from all staged installed roots so this validates
     the final product topology rather than trusting the source-side graph.
+    Consumers are discovered from the selected installed vendor root itself,
+    not only from PRODUCT_COPY_FILES, so Soong/Make-built vendor executables
+    and shared libraries cannot escape the final-output dependency audit.
     Resolution is bitness-sensitive and fail-closed.
     """
     vmk=root/"vendor/lenovo/TB8504/TB8504-vendor.mk"
@@ -196,10 +199,14 @@ def audit_actual_vendor_elf_dependencies(root: Path, out: Path) -> None:
                 providers[cls].setdefault(name,[]).append(str(p))
 
     consumers=[]
-    for _src_rel,dst_rel in entries:
-        p=vendor_root/dst_rel
+    seen_consumers=set()
+    for p in vendor_root.rglob("*"):
         if not p.is_file() or not is_elf(p):
             continue
+        key=str(p)
+        if key in seen_consumers:
+            continue
+        seen_consumers.add(key)
         cls=elf_class(p)
         if cls not in (1,2):
             fail(f"invalid installed ELF class: {p}")
@@ -239,6 +246,7 @@ def audit_actual_vendor_elf_dependencies(root: Path, out: Path) -> None:
         "wrong_bitness":wrong,
     }
     print(f"ACTUAL_VENDOR_ELF_CONSUMERS={report['consumer_elfs']}")
+    print("ACTUAL_VENDOR_ELF_SCOPE=ALL_INSTALLED_VENDOR_ELFS")
     print(f"ACTUAL_OUTPUT_ELF_PROVIDERS={report['provider_elfs']}")
     print(f"ACTUAL_OUTPUT_DT_NEEDED_EDGES={report['dt_needed_edges']}")
     print(f"ACTUAL_OUTPUT_UNRESOLVED_EDGES={report['unresolved_edges']}")
