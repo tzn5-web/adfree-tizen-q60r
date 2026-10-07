@@ -23,25 +23,45 @@ def main() -> int:
         if re.search(rf"^\s*{re.escape(token)}\s*=", text, re.M):
             failures.append(f"legacy invalid PRODUCT_BUILD_PROP_OVERRIDES key remains: {token}")
 
-    # Parse only the TB8504 override block to guard against another late
-    # gen_build_prop failure.
-    block_match=re.search(
-        r"PRODUCT_BUILD_PROP_OVERRIDES\s*\+=\s*\\\n"
-        r"(?P<body>(?:\s+[^\n]+(?:\\)?\n)+)",
-        text,
-    )
+    # Parse only the continued PRODUCT_BUILD_PROP_OVERRIDES assignment.
+    # Stop at the first line without a trailing backslash so a following
+    # standalone BUILD_FINGERPRINT assignment cannot be misclassified.
     keys=[]
-    if not block_match:
+    lines=text.splitlines()
+    block_start=None
+    for i, raw in enumerate(lines):
+        if raw.strip().startswith("PRODUCT_BUILD_PROP_OVERRIDES") and "+=" in raw:
+            block_start=i
+            break
+    if block_start is None:
         failures.append("PRODUCT_BUILD_PROP_OVERRIDES block missing")
     else:
-        for raw in block_match.group("body").splitlines():
-            item=raw.strip().rstrip("\\").strip()
-            if not item or "=" not in item:
-                continue
-            key=item.split("=",1)[0].strip()
-            keys.append(key)
-            if key not in VALID_KEYS:
-                failures.append(f"unrecognized Android 16 product override key: {key}")
+        raw=lines[block_start]
+        if not raw.rstrip().endswith("\\"):
+            failures.append("PRODUCT_BUILD_PROP_OVERRIDES has no continued body")
+        else:
+            i=block_start+1
+            while i < len(lines):
+                raw=lines[i]
+                item=raw.strip()
+                if not item:
+                    break
+                continued=item.endswith("\\")
+                item=item.rstrip("\\").strip()
+                if "=" not in item:
+                    failures.append(
+                        f"malformed PRODUCT_BUILD_PROP_OVERRIDES item: {item}"
+                    )
+                    break
+                key=item.split("=",1)[0].strip()
+                keys.append(key)
+                if key not in VALID_KEYS:
+                    failures.append(
+                        f"unrecognized Android 16 product override key: {key}"
+                    )
+                i += 1
+                if not continued:
+                    break
 
     if "BuildDesc" not in keys:
         failures.append("BuildDesc override missing")
