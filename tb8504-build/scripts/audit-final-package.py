@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import lzma
 import os
 import re
+import shutil
+import struct
+import subprocess
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -50,6 +55,245 @@ def parse_metadata(text: str) -> dict[str,str]:
             k,v=raw.split("=",1)
             out[k.strip()]=v.strip()
     return out
+
+
+def parse_ranges(raw: str) -> list[tuple[int,int]]:
+    try:
+        nums=[int(x) for x in raw.strip().split(",") if x!=""]
+    except ValueError as exc:
+        fail(f"invalid transfer range set {raw!r}: {exc}")
+    if not nums or nums[0] != len(nums)-1 or nums[0] % 2:
+        fail(f"malformed transfer range set: {raw!r}")
+    ranges=[]
+    for start,end in zip(nums[1::2],nums[2::2]):
+        if start < 0 or end <= start:
+            fail(f"invalid transfer range pair: {start},{end}")
+        ranges.append((start,end))
+    return ranges
+
+
+def extract_new_dat(
+    z: zipfile.ZipFile,
+    member: str,
+    root: Path,
+    work: Path,
+) -> Path:
+    compressed=work/Path(member).name
+    with z.open(member,"r") as src, compressed.open("wb") as dst:
+        shutil.copyfileobj(src,dst,1024*1024)
+
+    if member.endswith(".br"):
+        brotli_candidates=[
+            root/"out/host/linux-x86/bin/brotli",
+            Path(shutil.which("brotli") or ""),
+        ]
+        brotli=next(
+            (p for p in brotli_candidates if str(p) and p.is_file()),None
+        )
+        if brotli is None:
+            fail("brotli decoder missing for system.new.dat.br audit")
+        raw=work/"system.new.dat"
+        with raw.open("wb") as dst:
+            proc=subprocess.run(
+                [str(brotli),"-d","-c",str(compressed)],
+                stdout=dst,stderr=subprocess.PIPE,check=False,
+            )
+        if proc.returncode!=0:
+            fail(
+                "brotli decode failed: "
+                + proc.stderr.decode("utf-8","replace")[-2000:]
+            )
+        return raw
+
+    if member.endswith(".xz"):
+        raw=work/"system.new.dat"
+        try:
+            with lzma.open(compressed,"rb") as src, raw.open("wb") as dst:
+                shutil.copyfileobj(src,dst,1024*1024)
+        except lzma.LZMAError as exc:
+            fail(f"xz decode failed: {exc}")
+        return raw
+
+    return compressed
+
+
+def materialize_local_system(root: Path, out: Path, work: Path) -> Path:
+    image=out/"system.img"
+    if not image.is_file():
+        fail("local system.img missing for block OTA audit")
+    with image.open("rb") as fh:
+        header=fh.read(4)
+    if len(header)==4 and struct.unpack("<I",header)[0]==0xED26FF3A:
+        simg2img=root/"out/host/linux-x86/bin/simg2img"
+        if not simg2img.is_file():
+            fail(f"simg2img missing for block OTA audit: {simg2img}")
+        raw=work/"local-system.raw.img"
+        proc=subprocess.run(
+            [str(simg2img),str(image),str(raw)],
+            text=True,capture_output=True,check=False,
+        )
+        if proc.returncode!=0 or not raw.is_file():
+            fail(
+                "simg2img failed during final package audit: "
+                + (proc.stderr or proc.stdout)[-2000:]
+            )
+        return raw
+    return image
+
+
+def ext_block_size(raw_image: Path) -> int:
+    with raw_image.open("rb") as fh:
+        fh.seek(1024+24)
+        data=fh.read(4)
+        fh.seek(1024+56)
+        magic=fh.read(2)
+    if len(data)!=4 or magic!=b"\x53\xef":
+        fail("local system image is not a valid ext filesystem")
+    log=struct.unpack("<I",data)[0]
+    if log>6:
+        fail(f"implausible ext block-size exponent: {log}")
+    return 1024 << log
+
+
+def compare_stream_to_ranges(
+    new_data: Path,
+    local_raw: Path,
+    commands: list[tuple[str,list[tuple[int,int]]]],
+    block_size: int,
+) -> tuple[int,int]:
+    compared_blocks=0
+    zero_blocks=0
+    with new_data.open("rb") as newf, local_raw.open("rb") as local:
+        for op,ranges in commands:
+            if op=="new":
+                for start,end in ranges:
+                    remaining=(end-start)*block_size
+                    local.seek(start*block_size)
+                    while remaining:
+                        n=min(1024*1024,remaining)
+                        actual=newf.read(n)
+                        expected=local.read(n)
+                        if len(actual)!=n:
+                            fail("system.new.dat truncated while consuming new ranges")
+                        if actual!=expected:
+                            fail(
+                                "block OTA system payload differs from staged "
+                                f"system.img at blocks {start}-{end}"
+                            )
+                        remaining-=n
+                    compared_blocks += end-start
+            elif op=="zero":
+                for start,end in ranges:
+                    remaining=(end-start)*block_size
+                    local.seek(start*block_size)
+                    while remaining:
+                        n=min(1024*1024,remaining)
+                        expected=local.read(n)
+                        if len(expected)!=n or expected!=b"\x00"*n:
+                            fail(
+                                "block OTA zero range does not match staged "
+                                f"system.img at blocks {start}-{end}"
+                            )
+                        remaining-=n
+                    zero_blocks += end-start
+            elif op=="erase":
+                # Erase ranges are don't-care blocks and cannot be compared
+                # byte-for-byte after a filesystem image is materialized.
+                continue
+            else:
+                fail(f"unexpected source-dependent transfer command: {op}")
+
+        if newf.read(1):
+            fail("system.new.dat has unconsumed trailing data")
+    return compared_blocks,zero_blocks
+
+
+def audit_block_system_payload(
+    z: zipfile.ZipFile,
+    names: list[str],
+    block_payloads: list[str],
+    root: Path,
+    out: Path,
+) -> dict[str,str]:
+    if len(block_payloads)!=1:
+        fail(
+            "expected exactly one block system payload, found "
+            f"{len(block_payloads)}"
+        )
+    transfer=[n for n in names if Path(n).name=="system.transfer.list"]
+    if len(transfer)!=1:
+        fail(
+            "block OTA system payload requires exactly one "
+            f"system.transfer.list, found {len(transfer)}"
+        )
+
+    text=z.read(transfer[0]).decode("utf-8","strict")
+    lines=[x.strip() for x in text.splitlines() if x.strip()]
+    if len(lines)<3:
+        fail("system.transfer.list is truncated")
+    try:
+        version=int(lines[0])
+        declared_blocks=int(lines[1])
+    except ValueError as exc:
+        fail(f"invalid transfer-list header: {exc}")
+    if version<1 or version>4:
+        fail(f"unsupported transfer-list version: {version}")
+    command_start=4 if version>=2 else 2
+    if len(lines)<=command_start:
+        fail("system.transfer.list has no commands")
+
+    commands=[]
+    target_blocks=0
+    source_dependent=[]
+    for raw in lines[command_start:]:
+        parts=raw.split()
+        if not parts:
+            continue
+        op=parts[0]
+        if op in {"new","zero","erase"}:
+            if len(parts)!=2:
+                fail(f"malformed {op} transfer command: {raw}")
+            ranges=parse_ranges(parts[1])
+            commands.append((op,ranges))
+            if op in {"new","zero"}:
+                target_blocks += sum(end-start for start,end in ranges)
+        elif op in {"move","bsdiff","imgdiff","stash","free"}:
+            source_dependent.append(raw)
+        else:
+            fail(f"unknown transfer command: {raw}")
+
+    if source_dependent:
+        fail(
+            "final full ROM unexpectedly contains source-dependent block "
+            f"transfers: {source_dependent[:20]}"
+        )
+    if target_blocks!=declared_blocks:
+        fail(
+            f"transfer-list block count mismatch: commands={target_blocks} "
+            f"declared={declared_blocks}"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="tb8504-ota-system-") as td:
+        work=Path(td)
+        new_data=extract_new_dat(z,block_payloads[0],root,work)
+        local_raw=materialize_local_system(root,out,work)
+        block_size=ext_block_size(local_raw)
+        if block_size!=4096:
+            fail(f"unexpected system ext block size for block OTA: {block_size}")
+        compared,zeroed=compare_stream_to_ranges(
+            new_data,local_raw,commands,block_size
+        )
+
+    if compared<=0:
+        fail("block OTA audit compared zero new-data blocks")
+    return {
+        "TRANSFER_LIST_VERSION":str(version),
+        "TRANSFER_DECLARED_BLOCKS":str(declared_blocks),
+        "TRANSFER_NEW_BLOCKS_COMPARED":str(compared),
+        "TRANSFER_ZERO_BLOCKS_COMPARED":str(zeroed),
+        "BLOCK_OTA_SYSTEM_BINDING":"PASS",
+    }
+
 
 def main() -> int:
     ap=argparse.ArgumentParser()
@@ -156,15 +400,8 @@ def main() -> int:
                 "system.new.dat.br","system.new.dat","system.new.dat.xz"
             }
         ]
-        if block_payloads:
-            transfer_lists=[
-                n for n in names if Path(n).name=="system.transfer.list"
-            ]
-            if len(transfer_lists)!=1:
-                fail(
-                    "block OTA system payload requires exactly one "
-                    f"system.transfer.list, found {len(transfer_lists)}"
-                )
+        if len(block_payloads)>1:
+            fail(f"multiple block system payloads in OTA ZIP: {block_payloads}")
 
         boot_entries=[n for n in names if Path(n).name=="boot.img"]
         if len(boot_entries) != 1:
@@ -199,6 +436,12 @@ def main() -> int:
             if sha_bytes(z.read(raw_system[0])) != sha_file(local_system):
                 fail("OTA raw system.img does not match local system.img")
 
+        block_audit={}
+        if block_payloads:
+            block_audit=audit_block_system_payload(
+                z,names,block_payloads,root,out
+            )
+
         report={
             "ROM":str(rom),
             "ROM_SIZE":str(rom.stat().st_size),
@@ -214,6 +457,7 @@ def main() -> int:
             "LOCAL_BOOT_SHA256":local_boot_sha,
             "FINAL_PACKAGE_AUDIT":"PASS",
         }
+        report.update(block_audit)
         text="\n".join(f"{k}={v}" for k,v in report.items())+"\n"
         (args.report_dir/"final-package.txt").write_text(text,encoding="utf-8")
         print(text,end="")
