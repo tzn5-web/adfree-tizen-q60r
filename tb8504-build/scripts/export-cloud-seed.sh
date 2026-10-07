@@ -192,9 +192,17 @@ for REL in "${REPOS[@]}"; do
         fi
 
         SRC="$DIR/$F"
+        if [ -L "$SRC" ]; then
+            fail "untracked symlink unsupported by canonical seed: $REL/$F"
+            continue
+        fi
+        if [ ! -f "$SRC" ]; then
+            fail "unsupported untracked source type: $REL/$F"
+            continue
+        fi
         DST="$OUT/untracked/$REL/$F"
         mkdir -p "$(dirname "$DST")"
-        cp -a "$SRC" "$DST"
+        cp -f "$SRC" "$DST"
     done < <(git -C "$DIR" ls-files --others --exclude-standard -z 2>/dev/null)
 done
 
