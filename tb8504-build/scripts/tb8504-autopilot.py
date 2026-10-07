@@ -397,6 +397,8 @@ class Autopilot:
             if p.is_symlink():
                 h.update(b"L\0" + os.readlink(p).encode("utf-8", "surrogateescape"))
             elif p.is_file():
+                mode = p.stat().st_mode & 0o7777
+                h.update(b"M\0" + str(mode).encode("ascii") + b"\0")
                 with p.open("rb") as f:
                     for chunk in iter(lambda: f.read(1024 * 1024), b""):
                         h.update(chunk)
@@ -415,10 +417,24 @@ class Autopilot:
                 row.update({"type": "symlink", "target": target})
                 h.update(b"L\0" + target.encode("utf-8", "surrogateescape"))
             elif p.is_file():
+                st = p.stat()
                 digest = self.sha_file(p)
-                size = p.stat().st_size
-                row.update({"type": "file", "size": size, "sha256": digest})
-                h.update(b"F\0" + str(size).encode("ascii") + b"\0" + digest.encode("ascii"))
+                size = st.st_size
+                mode = st.st_mode & 0o7777
+                row.update({
+                    "type": "file",
+                    "mode": mode,
+                    "size": size,
+                    "sha256": digest,
+                })
+                h.update(
+                    b"F\0"
+                    + str(mode).encode("ascii")
+                    + b"\0"
+                    + str(size).encode("ascii")
+                    + b"\0"
+                    + digest.encode("ascii")
+                )
             else:
                 row.update({"type": "other"})
                 h.update(b"O")
