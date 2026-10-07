@@ -394,7 +394,7 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
         else
             SEED_SHA256="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
             REQUEST_PATH="tb8504-build/requests/live/stage8n-$STAMP.txt"
-            REQUEST_BODY="$(printf 'SEED_RELEASE_TAG=%s\nSEED_ZIP_SHA256=%s\n' "$DRAFT_RELEASE_TAG" "$SEED_SHA256")"
+            REQUEST_BODY="$(printf 'SEED_RELEASE_TAG=%s\nSEED_ZIP_SHA256=%s\nTOOLING_REF=%s\n' "$DRAFT_RELEASE_TAG" "$SEED_SHA256" "$TOOLING_REF")"
             REQUEST_B64="$(printf '%s' "$REQUEST_BODY" | base64 -w0)"
 
             gh api --method PUT "repos/$GITHUB_REPO/contents/$REQUEST_PATH" -f message="tb8504: request cloud STAGE8N audit $STAMP" -f content="$REQUEST_B64" -f branch="$GITHUB_TARGET" >/dev/null
