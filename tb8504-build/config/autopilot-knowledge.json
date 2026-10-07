@@ -346,8 +346,20 @@
       "no Android target build",
       "no device access",
       "automatic audited cloud seed v2 export",
-      "no automatic upload"
-    ]
+      "optional --upload-seed handoff through the same tb8504-autopilot.py entry point",
+      "when upload is selected, the STAGE8N request commit is parented directly to TOOLING_REF and the branch update must be fast-forward"
+    ],
+    "seed_handoff_contract": {
+      "single_entry_point": "tb8504-build/scripts/tb8504-autopilot.py",
+      "explicit_upload_flag": "--upload-seed",
+      "valid_goal": "converge",
+      "draft_release_only": true,
+      "request_commit_parent": "TOOLING_REF",
+      "branch_update": "fast-forward only",
+      "seed_metadata_requires_tooling_ref": true,
+      "no_build": true,
+      "no_device_access": true
+    }
   },
   "source_integrity_contracts": {
     "static_target_repos": {
