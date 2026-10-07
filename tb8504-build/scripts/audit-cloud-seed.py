@@ -85,6 +85,86 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def audit_untracked_manifest(
+    z: zipfile.ZipFile, repo: str, provenance: dict
+) -> None:
+    rows = provenance.get("untracked")
+    recorded = str(provenance.get("untracked_manifest_sha256", ""))
+    if not isinstance(rows, list):
+        fail(f"untracked provenance list missing: {repo}")
+    if not re.fullmatch(r"[0-9a-f]{64}", recorded):
+        fail(f"untracked provenance fingerprint invalid: {repo}")
+
+    names = set(z.namelist())
+    prefix = f"untracked/{repo}/"
+    expected_members: set[str] = set()
+    seen: set[str] = set()
+    h = hashlib.sha256()
+
+    for row in sorted(rows, key=lambda x: str(x.get("path", "")) if isinstance(x, dict) else ""):
+        if not isinstance(row, dict):
+            fail(f"untracked provenance row invalid: {repo}")
+        rel = str(row.get("path", ""))
+        rel_path = PurePosixPath(rel)
+        if (
+            not rel
+            or rel in seen
+            or rel_path.is_absolute()
+            or ".." in rel_path.parts
+        ):
+            fail(f"untracked provenance path invalid/duplicate: {repo}:{rel!r}")
+        seen.add(rel)
+        h.update(rel.encode("utf-8", "surrogateescape") + b"\0")
+
+        kind = str(row.get("type", ""))
+        if kind == "file":
+            size = row.get("size")
+            digest = str(row.get("sha256", ""))
+            if not isinstance(size, int) or size < 0:
+                fail(f"untracked file size invalid: {repo}:{rel}")
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                fail(f"untracked file digest invalid: {repo}:{rel}")
+            member = prefix + rel
+            if member not in names:
+                fail(f"untracked file missing from seed: {repo}:{rel}")
+            data = z.read(member)
+            if len(data) != size or sha256_bytes(data) != digest:
+                fail(f"untracked file content mismatch: {repo}:{rel}")
+            expected_members.add(member)
+            h.update(
+                b"F\0"
+                + str(size).encode("ascii")
+                + b"\0"
+                + digest.encode("ascii")
+            )
+        elif kind == "symlink":
+            fail(
+                "untracked symlink provenance is unsupported by the canonical "
+                f"seed format: {repo}:{rel}"
+            )
+        else:
+            fail(f"unsupported untracked provenance type: {repo}:{rel}:{kind}")
+
+    actual_members = {
+        name for name in names
+        if name.startswith(prefix) and not name.endswith("/")
+    }
+    if actual_members != expected_members:
+        missing = sorted(expected_members - actual_members)
+        extra = sorted(actual_members - expected_members)
+        fail(
+            f"untracked seed coverage mismatch {repo}: "
+            f"missing={missing[:20]} extra={extra[:20]}"
+        )
+    actual_manifest = h.hexdigest()
+    if actual_manifest != recorded:
+        fail(
+            f"untracked manifest fingerprint mismatch {repo}: "
+            f"{actual_manifest} != {recorded}"
+        )
+    print(f"UNTRACKED_MANIFEST_VERIFIED={repo}:{len(rows)}")
+
+
 def parse_sums(text: str) -> dict[str, str]:
     result: dict[str, str] = {}
 
@@ -277,6 +357,11 @@ def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict]:
         for key in ("patch_sha256", "untracked_manifest_sha256"):
             if not re.fullmatch(r"[0-9a-f]{64}", str(row.get(key, ""))):
                 fail(f"primary provenance {key} invalid: {rel}")
+
+    for rel, row in primary.items():
+        audit_untracked_manifest(z, rel, row)
+    if mode == "git":
+        audit_untracked_manifest(z, "hardware/qcom-caf/msm8996/gps", gps)
 
     print(f"PROVENANCE_WORKSPACE_PROJECT_COUNT={count}")
     print(f"PROVENANCE_WORKSPACE_REVISION_FINGERPRINT={rev}")
