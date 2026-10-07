@@ -236,7 +236,7 @@ def main() -> int:
         unsigned = sig["unsigned"]
         signer = sig["signer"].decode("utf-8", "replace")
         keyid = sig["keyid"].hex()
-        vermagic_matches = re.findall(rb"(?:^|\\x00)vermagic=([^\\x00]+)", unsigned)
+        vermagic_matches = re.findall(rb"(?:^|\x00)vermagic=([^\x00]+)", unsigned)
         if len(vermagic_matches) != 1:
             errors.append(
                 f"{module.name}: expected one vermagic entry, "
