@@ -65,17 +65,37 @@ def check_command_text(origin: str, text: str) -> None:
         if rx.search(text):
             fail(f"{name} in {origin}: {text.strip()}")
 
+def is_literal_search_command(line: str) -> bool:
+    """Recognize grep/rg used only to search for forbidden-looking strings.
+
+    Command substitution and backticks are deliberately rejected: they can
+    execute commands even when the outer command is only grep.
+    """
+    if "$(" in line or "`" in line:
+        return False
+    probe=line.strip()
+    if probe.startswith("if "):
+        probe=probe[3:].lstrip()
+    if probe.startswith("!"):
+        probe=probe[1:].lstrip()
+    try:
+        tokens=shlex.split(probe,posix=True)
+    except ValueError:
+        return False
+    if not tokens:
+        return False
+    return Path(tokens[0]).name in {"grep","egrep","fgrep","rg"}
+
 def audit_shell(path: Path) -> None:
     for no,raw in enumerate(path.read_text("utf-8",errors="replace").splitlines(),1):
         line=strip_shell_comment(raw).strip()
         if not line:
             continue
-        # Ignore pure diagnostic/search strings. For grep/ripgrep the
-        # forbidden-looking text is the pattern being searched for, not a
-        # command that will be executed or a device node that will be written.
+        # Ignore pure diagnostic/search strings. Search patterns are data, not
+        # executable device commands, but only when no substitution is present.
         if re.match(r"^(echo|printf)\b", line):
             continue
-        if re.match(r"^(?:if\s+)?!?\s*(?:grep|egrep|fgrep|rg)\b", line):
+        if is_literal_search_command(line):
             continue
         check_command_text(f"{path.name}:{no}", line)
 
