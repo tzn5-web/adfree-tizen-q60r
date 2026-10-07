@@ -119,6 +119,7 @@ jobs:
               for name in (
                   "device_lenovo_TB8504.tar.gz",
                   "patches/vendor__lenovo__TB8504.patch",
+                  "meta/module-info.json",
               ):
                   (root / Path(name).name).write_bytes(z.read(name))
           device_root = root / "device"
@@ -128,6 +129,7 @@ jobs:
           PY
           test -f /tmp/tb8504-stage8n/reconstructed/device/TB8504/BoardConfig.mk
           test -f /tmp/tb8504-stage8n/reconstructed/vendor__lenovo__TB8504.patch
+          test -f /tmp/tb8504-stage8n/reconstructed/module-info.json
 
       - name: Reconstruct exact patched vendor tree
         shell: bash
@@ -171,6 +173,7 @@ jobs:
             --vendor /tmp/tb8504-stage8n/reconstructed/vendor \
             --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
             --report-dir /tmp/tb8504-stage8n/report \
+            --module-info /tmp/tb8504-stage8n/reconstructed/module-info.json \
             2>&1 | tee /tmp/tb8504-stage8n/report/runtime-contracts.log
           RC=${PIPESTATUS[0]}
           echo "RUNTIME_CONTRACT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
