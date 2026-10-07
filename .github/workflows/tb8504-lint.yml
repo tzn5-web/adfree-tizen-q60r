@@ -105,6 +105,67 @@ jobs:
           set -o pipefail
           python3 tb8504-build/scripts/tb8504-autopilot.py --self-test
 
+      - name: Helper behavior self-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          mkdir -p "$TMP/device"
+          cat > "$TMP/device/vendor_prop.mk" <<'EOF'
+          PRODUCT_VENDOR_PROPERTIES += \
+              ro.surface_flinger.supports_background_blur=1 \
+              debug.sf.disable_backpressure=1 \
+              debug.egl.hw=0 \
+              debug.sf.hw=0 \
+              debug.hwui.use_buffer_age=false \
+              ro.config.avoid_gfx_accel=true
+          EOF
+
+          python3 tb8504-build/scripts/apply-performance-compat.py \
+            --device "$TMP/device" \
+            --patch-out "$TMP/perf-first.patch" \
+            --report-out "$TMP/perf-first.txt"
+          grep -Fx 'PERFORMANCE_COMPAT_STATE=APPLIED' "$TMP/perf-first.txt"
+          grep -Fx 'CHANGED_FILES=1' "$TMP/perf-first.txt"
+
+          python3 tb8504-build/scripts/apply-performance-compat.py \
+            --device "$TMP/device" \
+            --patch-out "$TMP/perf-second.patch" \
+            --report-out "$TMP/perf-second.txt"
+          grep -Fx 'PERFORMANCE_COMPAT_STATE=ALREADY_APPLIED' "$TMP/perf-second.txt"
+          grep -Fx 'CHANGED_FILES=0' "$TMP/perf-second.txt"
+          test ! -s "$TMP/perf-second.patch"
+
+          python3 tb8504-build/scripts/audit-performance-compat.py \
+            --device "$TMP/device" |
+            grep -Fx 'TB8504_PERFORMANCE_SOURCE_AUDIT=PASS'
+
+          python3 - <<'PY'
+          import runpy
+          pkg=runpy.run_path(
+              "tb8504-build/scripts/audit-final-package.py",
+              run_name="__tb8504_final_package_selftest__",
+          )
+          parse_ranges=pkg["parse_ranges"]
+          assert parse_ranges("4,0,2,4,8") == [(0,2),(4,8)]
+          try:
+              parse_ranges("3,0,2,4")
+          except SystemExit as exc:
+              assert exc.code == 2
+          else:
+              raise AssertionError("malformed transfer range was accepted")
+
+          img=runpy.run_path(
+              "tb8504-build/scripts/audit-local-image.py",
+              run_name="__tb8504_local_image_selftest__",
+          )
+          assert img["EXPECTED_DTB"] == "tb8504-msm8917-pmi8937-qrd-sku5.dtb"
+          assert "CONFIG_MODULE_SIG_FORCE=y" in img["REQUIRED_KERNEL_CONFIG"]
+          assert "androidboot.bootdevice=7824900.sdhci" in img["REQUIRED_CMDLINE_TOKENS"]
+          print("TB8504_HELPER_BEHAVIOR_SELFTEST=PASS")
+          PY
+
       - name: Cloud lane summary
         shell: bash
         run: |
