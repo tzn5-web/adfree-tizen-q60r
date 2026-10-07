@@ -4,7 +4,7 @@
 # real local workspace, then performs the integrated LineageOS build.
 # NO ADB / NO FASTBOOT / NO FLASH / NO DEVICE ACCESS.
 
-set -Eeuo pipefail
+set -Eeo pipefail
 
 ROOT="${1:-/home/dre/android16-tb8504/lineage-23.2}"
 DEVICE="$ROOT/device/lenovo/TB8504"
@@ -118,21 +118,54 @@ if grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]|/dev/(block|snd)|dd[[:sp
 fi
 
 echo
-echo "=== APPLY AUDITED RUNTIME CLEANUP ==="
-python3 "$TOOLS/apply-runtime-cleanup.py"     --device "$DEVICE"     --patch-out "$PREAUDIT/device-runtime-cleanup.patch"     --report-out "$PREAUDIT/runtime-cleanup.txt"     2>&1 | tee "$PREAUDIT/runtime-cleanup.log"
-APPLY_RC=${PIPESTATUS[0]}
-[ "$APPLY_RC" -eq 0 ] || fail 20 "runtime cleanup failed rc=$APPLY_RC"
+echo "=== CHECK/APPLY AUDITED RUNTIME CLEANUP ==="
 
-grep -Fx 'RUNTIME_CLEANUP=PASS' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
-    fail 21 "runtime cleanup did not report PASS"
-grep -Fx 'REMOVED_INIT_SERVICES=25' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
-    fail 22 "runtime cleanup did not remove exact validated service set"
-grep -Fx 'REMOVED_CAMERA_SDK_OVERRIDE=1' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
-    fail 23 "camera SDK override cleanup mismatch"
-grep -Fx 'REMOVED_WFD_VINTF_HAL=1' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
-    fail 24 "WFD VINTF cleanup mismatch"
-grep -Fx 'CLEARED_CAMERA_DAEMON_SEPOLICY=1' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
-    fail 25 "camera daemon SELinux cleanup mismatch"
+# The previous run may already have applied the validated overlay before a
+# later build-environment failure. Detect that state with the same runtime
+# contract auditor and do not attempt destructive/redundant re-application.
+set +e
+python3 "$TOOLS/audit-runtime-contracts.py" \
+    --vendor "$VENDOR" \
+    --device "$DEVICE" \
+    --report-dir "$PREAUDIT/pre-cleanup-state" \
+    --module-info "$MODULE_INFO" \
+    > "$PREAUDIT/pre-cleanup-state.log" 2>&1
+PRE_CLEAN_RC=$?
+set -e
+
+if [ "$PRE_CLEAN_RC" -eq 0 ] && \
+   grep -Fx 'RUNTIME_CONTRACT_FAILURES=0' "$PREAUDIT/pre-cleanup-state.log" >/dev/null && \
+   grep -Fx 'STALE_CAMERA_SEPOLICY_REFERENCES=0' "$PREAUDIT/pre-cleanup-state.log" >/dev/null && \
+   grep -Fx 'STALE_VINTF_HAL_DECLARATIONS=0' "$PREAUDIT/pre-cleanup-state.log" >/dev/null && \
+   grep -Fx 'REMOVED_SERVICE_REFERENCES=0' "$PREAUDIT/pre-cleanup-state.log" >/dev/null; then
+    echo "RUNTIME_CLEANUP_STATE=ALREADY_APPLIED"
+    cp "$PREAUDIT/pre-cleanup-state.log" "$PREAUDIT/runtime-cleanup.log"
+    {
+        echo "RUNTIME_CLEANUP_STATE=ALREADY_APPLIED"
+        echo "NO_REAPPLY=YES"
+        echo "RUNTIME_CLEANUP=PASS"
+    } > "$PREAUDIT/runtime-cleanup.txt"
+else
+    echo "RUNTIME_CLEANUP_STATE=NEEDS_APPLY"
+    python3 "$TOOLS/apply-runtime-cleanup.py" \
+        --device "$DEVICE" \
+        --patch-out "$PREAUDIT/device-runtime-cleanup.patch" \
+        --report-out "$PREAUDIT/runtime-cleanup.txt" \
+        2>&1 | tee "$PREAUDIT/runtime-cleanup.log"
+    APPLY_RC=${PIPESTATUS[0]}
+    [ "$APPLY_RC" -eq 0 ] || fail 20 "runtime cleanup failed rc=$APPLY_RC"
+
+    grep -Fx 'RUNTIME_CLEANUP=PASS' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
+        fail 21 "runtime cleanup did not report PASS"
+    grep -Fx 'REMOVED_INIT_SERVICES=25' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
+        fail 22 "runtime cleanup did not remove exact validated service set"
+    grep -Fx 'REMOVED_CAMERA_SDK_OVERRIDE=1' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
+        fail 23 "camera SDK override cleanup mismatch"
+    grep -Fx 'REMOVED_WFD_VINTF_HAL=1' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
+        fail 24 "WFD VINTF cleanup mismatch"
+    grep -Fx 'CLEARED_CAMERA_DAEMON_SEPOLICY=1' "$PREAUDIT/runtime-cleanup.txt" >/dev/null ||
+        fail 25 "camera daemon SELinux cleanup mismatch"
+fi
 
 echo
 echo "=== PRE-BUILD STAGE8N ELF AUDIT ==="
@@ -169,8 +202,11 @@ echo "No clean/installclean is performed; this is an incremental full build."
 echo "============================================================"
 
 cd "$ROOT"
+# Android/Lineage envsetup uses intentionally unset shell variables such as TOP.
+# Keep nounset disabled for envsetup/lunch/build; errexit and pipefail remain on.
+set +u
 # shellcheck disable=SC1091
-source build/envsetup.sh
+source build/envsetup.sh || fail 49 "source build/envsetup.sh failed"
 
 if ! lunch lineage_TB8504-userdebug; then
     fail 50 "lunch lineage_TB8504-userdebug failed"
