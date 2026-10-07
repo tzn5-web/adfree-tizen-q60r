@@ -1286,6 +1286,17 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.audit_partition_image("vendor", limit)
         self.say("VENDOR_STAGE=PASS")
 
+    def ensure_current_boot_recovery(self) -> None:
+        for kind in ("boot", "recovery"):
+            if self.audit_image(kind):
+                continue
+            self.build_target(f"{kind}image")
+            if not self.audit_image(kind, fresh=True):
+                raise StopAutopilot(
+                    f"{kind} image could not be bound to current source state"
+                )
+        self.say("BOOT_RECOVERY_SOURCE_BINDING=PASS")
+
     def ensure_system(self) -> None:
         self.ensure_vendor_if_real()
         raw = self.release_info.get("BOARD_SYSTEMIMAGE_PARTITION_SIZE", "")
@@ -1297,11 +1308,13 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         if self.partition_binding_current("system"):
             self.audit_partition_image("system", limit)
             self.require_built_output_audit("system-reuse", "systemimage")
+            self.ensure_current_boot_recovery()
             self.say("SYSTEM_STAGE=REUSED_VALIDATED")
             return
         self.build_target("systemimage")
         self.audit_partition_image("system", limit)
         self.require_built_output_audit("system", "systemimage")
+        self.ensure_current_boot_recovery()
         self.say("SYSTEM_STAGE=PASS")
 
     def latest_rom(self) -> Path:
