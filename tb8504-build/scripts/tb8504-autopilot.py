@@ -465,6 +465,7 @@ class Autopilot:
             "is_dir": gps.is_dir(),
         }
         gps_contract = contracts.get("gps_repo")
+        actual_mode = "absent"
         if gps.is_dir():
             inside = self.capture(
                 ["git", "rev-parse", "--is-inside-work-tree"],
@@ -473,33 +474,53 @@ class Autopilot:
             )
             gps_report["git_worktree"] = inside == "true"
             if inside == "true":
+                actual_mode = "git"
                 gps_head = self.capture(["git", "rev-parse", "HEAD"], cwd=gps)
                 gps_status = self.git_status(gps)
-                gps_report["head"] = gps_head
-                gps_report["status"] = gps_status.splitlines()
-                gps_report["patch_sha256"] = self.git_diff_sha256(gps)
-                gps_report["untracked"] = self.git_untracked(gps)
-                if isinstance(gps_contract, dict) and gps_contract:
-                    if gps_head != str(gps_contract.get("head", "")):
-                        raise StopAutopilot(
-                            f"GPS source HEAD mismatch: {gps_head} != "
-                            f"{gps_contract.get('head', '')}"
-                        )
-                    if gps_report["patch_sha256"] != str(
-                        gps_contract.get("patch_sha256", "")
-                    ):
-                        raise StopAutopilot("GPS source patch fingerprint mismatch")
-                    if gps_report["untracked"]:
-                        raise StopAutopilot(
-                            f"GPS repo has unexpected untracked files: "
-                            f"{gps_report['untracked'][:30]}"
-                        )
-                    self.say("GPS_SOURCE_CONTRACT=PASS")
-                else:
-                    self.unproven_sources.append(gps_rel)
+                gps_patch_sha = self.git_diff_sha256(gps)
+                gps_untracked_sha, gps_untracked = self.untracked_manifest(gps)
+                gps_report.update(
+                    {
+                        "head": gps_head,
+                        "status": gps_status.splitlines(),
+                        "patch_sha256": gps_patch_sha,
+                        "untracked_manifest_sha256": gps_untracked_sha,
+                        "untracked": gps_untracked,
+                    }
+                )
             else:
+                actual_mode = "tree"
                 gps_report["tree_sha256"] = self.hash_plain_tree(gps)
-                self.unproven_sources.append(gps_rel)
+
+        gps_report["mode"] = actual_mode
+        if isinstance(gps_contract, dict) and gps_contract:
+            wanted_mode = str(gps_contract.get("mode", "git"))
+            if actual_mode != wanted_mode:
+                raise StopAutopilot(
+                    f"GPS source mode mismatch: {actual_mode} != {wanted_mode}"
+                )
+            if wanted_mode == "git":
+                if gps_report.get("head") != gps_contract.get("head"):
+                    raise StopAutopilot(
+                        f"GPS source HEAD mismatch: {gps_report.get('head')} != "
+                        f"{gps_contract.get('head')}"
+                    )
+                if gps_report.get("patch_sha256") != gps_contract.get(
+                    "patch_sha256"
+                ):
+                    raise StopAutopilot("GPS source patch fingerprint mismatch")
+                if gps_report.get("untracked_manifest_sha256") != gps_contract.get(
+                    "untracked_manifest_sha256"
+                ):
+                    raise StopAutopilot("GPS untracked fingerprint mismatch")
+            elif wanted_mode == "tree":
+                if gps_report.get("tree_sha256") != gps_contract.get(
+                    "tree_sha256"
+                ):
+                    raise StopAutopilot("GPS plain-tree fingerprint mismatch")
+            elif wanted_mode != "absent":
+                raise StopAutopilot(f"unsupported GPS contract mode: {wanted_mode}")
+            self.say(f"GPS_SOURCE_CONTRACT=PASS mode={wanted_mode}")
         else:
             self.unproven_sources.append(gps_rel)
 
