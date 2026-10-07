@@ -24,7 +24,9 @@ REQUIRED = {
     "meta/EXPORT.txt",
     "meta/REPOS.txt",
     "meta/SEEDS.txt",
+    "meta/REQUESTED_REPOS.txt",
     "meta/EXPORTED_REPOS.txt",
+    "meta/MISSING_REPOS.txt",
     "meta/INSTALLED_MODULES.txt",
     "meta/MODULE_SIGNING.txt",
     "SHA256SUMS",
@@ -33,6 +35,7 @@ REQUIRED = {
 }
 
 EXPECTED_EXPORT = {
+    "SEED_FORMAT_VERSION=2",
     "NO_BUILD=YES",
     "NO_FLASH=YES",
     "EXPECTED_BOOT_SIZE=67108864",
