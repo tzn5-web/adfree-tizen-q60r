@@ -1107,76 +1107,174 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.save_state()
         self.say(f"{kind.upper()}_BASIC_IMAGE_AUDIT=PASS")
 
+    def run_built_output_audit(self, log_name: str) -> CommandResult:
+        output_dir = self.report / "actual-built-output"
+        output_dir.mkdir(exist_ok=True)
+        return self.helper(
+            "audit-built-output.py",
+            ["--root", str(self.root), "--report-dir", str(output_dir)],
+            log_name,
+        )
+
+    def require_built_output_audit(self, target: str, rebuild_target: str) -> None:
+        r = self.run_built_output_audit(f"audit-built-output-{target}.log")
+        if r.rc == 0 and "ACTUAL_BUILT_OUTPUT_AUDIT=PASS" in r.text:
+            self.say("ACTUAL_BUILT_OUTPUT_AUDIT=PASS")
+            return
+
+        classified = self.classify_failure(r.text, target)
+        if classified and self.apply_handler(classified[0], target):
+            self.say("BUILT_OUTPUT_SELF_HEAL_REQUIRES_REBUILD=YES")
+            self.build_target(rebuild_target)
+            if rebuild_target == "systemimage":
+                raw = self.release_info.get("BOARD_SYSTEMIMAGE_PARTITION_SIZE", "")
+                limit = (
+                    int(raw, 0)
+                    if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw)
+                    else PARTITION_LIMITS["system"]
+                )
+                self.audit_partition_image("system", limit)
+            r = self.run_built_output_audit(
+                f"audit-built-output-{target}-retry.log"
+            )
+        if r.rc != 0 or "ACTUAL_BUILT_OUTPUT_AUDIT=PASS" not in r.text:
+            self.write_unknown_error(target, r)
+            raise StopAutopilot(f"actual built-output audit failed: {target}")
+        self.say("ACTUAL_BUILT_OUTPUT_AUDIT=PASS")
+
     def ensure_vendor_if_real(self) -> None:
         if not self.detect_vendor_partition():
             self.say("VENDOR_STAGE=NOT_APPLICABLE")
+            return
+        if self.partition_binding_current("vendor"):
+            raw = self.release_info.get("BOARD_VENDORIMAGE_PARTITION_SIZE", "")
+            limit = (
+                int(raw, 0)
+                if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw)
+                else None
+            )
+            self.audit_partition_image("vendor", limit)
+            self.say("VENDOR_STAGE=REUSED_VALIDATED")
             return
         status = self.build_target("vendorimage")
         if status == "SKIPPED":
             return
         raw = self.release_info.get("BOARD_VENDORIMAGE_PARTITION_SIZE", "")
-        limit = int(raw, 0) if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw) else None
+        limit = (
+            int(raw, 0)
+            if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw)
+            else None
+        )
         self.audit_partition_image("vendor", limit)
         self.say("VENDOR_STAGE=PASS")
 
     def ensure_system(self) -> None:
         self.ensure_vendor_if_real()
-        self.build_target("systemimage")
         raw = self.release_info.get("BOARD_SYSTEMIMAGE_PARTITION_SIZE", "")
-        limit = int(raw, 0) if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw) else PARTITION_LIMITS["system"]
+        limit = (
+            int(raw, 0)
+            if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw)
+            else PARTITION_LIMITS["system"]
+        )
+        if self.partition_binding_current("system"):
+            self.audit_partition_image("system", limit)
+            self.require_built_output_audit("system-reuse", "systemimage")
+            self.say("SYSTEM_STAGE=REUSED_VALIDATED")
+            return
+        self.build_target("systemimage")
         self.audit_partition_image("system", limit)
+        self.require_built_output_audit("system", "systemimage")
         self.say("SYSTEM_STAGE=PASS")
 
-    def full_rom(self) -> None:
-        self.say("")
-        self.say("=== FINAL FULL ROM BUILD ===")
-        self.build_target("bacon")
-        self.source_changed = False
-        self.ensure_image("boot")
-        self.ensure_image("recovery")
+    def latest_rom(self) -> Path:
         zips = sorted(
             self.product_out.glob("lineage-23.2-*-UNOFFICIAL-TB8504.zip"),
             key=lambda p: p.stat().st_mtime,
         )
         if not zips:
-            zips = sorted(self.product_out.glob("lineage-*.zip"), key=lambda p: p.stat().st_mtime)
+            zips = sorted(
+                self.product_out.glob("lineage-*.zip"),
+                key=lambda p: p.stat().st_mtime,
+            )
         if not zips:
-            raise StopAutopilot("bacon succeeded but no Lineage ZIP was found")
+            raise StopAutopilot("no Lineage ZIP found")
         rom = zips[-1]
         if rom.stat().st_size <= 0:
             raise StopAutopilot("final Lineage ZIP is empty")
+        return rom
+
+    def audit_final_package(self, rom: Path, min_mtime: float) -> None:
+        package_dir = self.report / "final-package"
+        package_dir.mkdir(exist_ok=True)
+        r = self.helper(
+            "audit-final-package.py",
+            [
+                "--root", str(self.root),
+                "--rom", str(rom),
+                "--min-mtime", str(min_mtime),
+                "--report-dir", str(package_dir),
+            ],
+            "audit-final-package.log",
+        )
+        if r.rc != 0 or "FINAL_PACKAGE_AUDIT=PASS" not in r.text:
+            self.write_unknown_error("final-package", r)
+            raise StopAutopilot("final ROM package audit failed")
         sha = self.sha_file(rom)
+        self.state["rom"] = {
+            "path": str(rom),
+            "sha256": sha,
+            "size": rom.stat().st_size,
+            "source_fingerprint": self.current_source_fingerprint,
+            "audited": dt.datetime.now().isoformat(),
+            "tooling_ref": self.tooling_ref,
+        }
+        self.save_state()
         self.say(f"FINAL_ROM={rom}")
         self.say(f"FINAL_ROM_SIZE={rom.stat().st_size}")
         self.say(f"FINAL_ROM_SHA256={sha}")
+        self.say("FINAL_PACKAGE_AUDIT=PASS")
+
+    def rom_binding_current(self) -> bool:
+        row = self.state.get("rom", {})
+        if not isinstance(row, dict):
+            return False
+        p = Path(str(row.get("path", "")))
+        if not p.is_file() or not self.current_source_fingerprint:
+            return False
+        return (
+            row.get("source_fingerprint") == self.current_source_fingerprint
+            and row.get("sha256") == self.sha_file(p)
+        )
+
+    def full_rom(self) -> None:
+        self.say("")
+        self.say("=== FINAL FULL ROM BUILD ===")
+        bacon_started = time.time()
+        self.build_target("bacon")
+        self.source_changed = False
+        self.ensure_image("boot")
+        self.ensure_image("recovery")
 
         self.converge_sources()
+        if self.source_changed:
+            self.say("POSTBUILD_SOURCE_CHANGE=INVALIDATES_ARTIFACTS")
+            self.build_target("bacon")
+            self.source_changed = False
+            self.ensure_image("boot")
+            self.ensure_image("recovery")
+            self.converge_sources()
+            if self.source_changed:
+                raise StopAutopilot(
+                    "source convergence changed files again after post-build rebuild"
+                )
         self.say("FINAL_ROM_POSTBUILD_SOURCE_GATES=PASS")
 
-        output_dir = self.report / "actual-built-output"
-        output_dir.mkdir(exist_ok=True)
-        r = self.helper(
-            "audit-built-output.py",
-            ["--root", str(self.root), "--report-dir", str(output_dir)],
-            "audit-built-output.log",
-        )
-        if r.rc != 0 or "ACTUAL_BUILT_OUTPUT_AUDIT=PASS" not in r.text:
-            classified = self.classify_failure(r.text, "bacon-postbuild")
-            if classified and self.apply_handler(classified[0], "bacon-postbuild"):
-                self.say("POSTBUILD_SELF_HEAL_REQUIRES_REBUILD=YES")
-                self.build_target("bacon")
-                self.source_changed = False
-                self.ensure_image("boot")
-                self.ensure_image("recovery")
-                r = self.helper(
-                    "audit-built-output.py",
-                    ["--root", str(self.root), "--report-dir", str(output_dir)],
-                    "audit-built-output-retry.log",
-                )
-            if r.rc != 0 or "ACTUAL_BUILT_OUTPUT_AUDIT=PASS" not in r.text:
-                self.write_unknown_error("bacon-postbuild", r)
-                raise StopAutopilot("actual built-output audit failed")
-        self.say("ACTUAL_BUILT_OUTPUT_AUDIT=PASS")
+        self.require_built_output_audit("bacon-postbuild", "bacon")
+
+        # A handler inside the built-output gate may have rebuilt bacon.
+        # Select and hash the package only after every possible rebuild.
+        rom = self.latest_rom()
+        self.audit_final_package(rom, bacon_started)
         self.say("FULL_ROM_STAGE=PASS")
 
     def next_stage(self) -> None:
@@ -1184,28 +1282,57 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.say("=== NEXT UNVALIDATED STAGE ===")
         if not self.audit_image("boot"):
             self.build_target("bootimage")
-            if not self.audit_image("boot"):
+            if not self.audit_image("boot", fresh=True):
                 raise StopAutopilot("next-stage boot audit failed")
             self.say("NEXT_COMPLETED=BOOT")
             return
+
         if not self.audit_image("recovery"):
             self.build_target("recoveryimage")
-            if not self.audit_image("recovery"):
+            if not self.audit_image("recovery", fresh=True):
                 raise StopAutopilot("next-stage recovery audit failed")
             self.say("NEXT_COMPLETED=RECOVERY")
             return
+
         if self.detect_vendor_partition():
-            self.build_target("vendorimage")
             raw = self.release_info.get("BOARD_VENDORIMAGE_PARTITION_SIZE", "")
-            limit = int(raw, 0) if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw) else None
+            limit = (
+                int(raw, 0)
+                if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw)
+                else None
+            )
+            if not self.partition_binding_current("vendor"):
+                status = self.build_target("vendorimage")
+                if status != "SKIPPED":
+                    self.audit_partition_image("vendor", limit)
+                self.say("NEXT_COMPLETED=VENDOR")
+                return
             self.audit_partition_image("vendor", limit)
-            self.say("NEXT_COMPLETED=VENDOR")
-        else:
+
+        raw = self.release_info.get("BOARD_SYSTEMIMAGE_PARTITION_SIZE", "")
+        limit = (
+            int(raw, 0)
+            if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw)
+            else PARTITION_LIMITS["system"]
+        )
+        if not self.partition_binding_current("system"):
             self.build_target("systemimage")
-            raw = self.release_info.get("BOARD_SYSTEMIMAGE_PARTITION_SIZE", "")
-            limit = int(raw, 0) if raw and re.fullmatch(r"0[xX][0-9a-fA-F]+|\d+", raw) else PARTITION_LIMITS["system"]
             self.audit_partition_image("system", limit)
+            self.require_built_output_audit("next-system", "systemimage")
             self.say("NEXT_COMPLETED=SYSTEM")
+            return
+
+        self.audit_partition_image("system", limit)
+        self.require_built_output_audit("next-system-reuse", "systemimage")
+
+        if self.rom_binding_current():
+            rom = Path(str(self.state["rom"]["path"]))
+            self.audit_final_package(rom, 0.0)
+            self.say("NEXT_COMPLETED=ALL_STAGES_ALREADY_VALIDATED")
+            return
+
+        self.full_rom()
+        self.say("NEXT_COMPLETED=ROM")
 
     def write_unknown_error(self, target: str, result: CommandResult) -> None:
         d = self.report / "unknown-error"
