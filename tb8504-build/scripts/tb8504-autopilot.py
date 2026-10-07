@@ -1190,6 +1190,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             [
                 "env",
                 f"TB8504_TOOLING_REF={self.tooling_ref}",
+                f"TB8504_PROVENANCE_DIR={self.report}",
                 f"TB8504_UPLOAD_DRAFT={'1' if self.upload_seed else '0'}",
                 f"TB8504_GITHUB_REPO={REPO}",
                 f"TB8504_GITHUB_TARGET={BRANCH}",
@@ -2109,6 +2110,7 @@ def static_self_test() -> None:
         "--upload-seed",
         "CLOUD_SEED_V2_HANDOFF=PASS",
         "SEED_HANDOFF_PREFLIGHT=PASS",
+        "TB8504_PROVENANCE_DIR",
     )
     for guard in required_guards:
         if guard not in source_text and guard not in json.dumps(knowledge):
