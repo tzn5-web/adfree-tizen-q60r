@@ -2038,10 +2038,24 @@ def static_self_test() -> None:
         "ACTUAL_OUTPUT_WRONG_BITNESS_EDGES",
         'EXPECTED_FIRST_API_LEVEL = "25"',
         "CHECKVINTF_KERNEL_REQUIREMENTS=ENFORCED",
+        "A/B or dynamic-partition payload found in legacy non-A/B",
     ):
         if guard not in built_output_text:
             raise RuntimeError(
-                f"required installed-output ELF audit guard missing: {guard}"
+                f"required installed-output audit guard missing: {guard}"
+            )
+
+    final_package_text = (
+        repo_root / "tb8504-build/scripts/audit-final-package.py"
+    ).read_text("utf-8", errors="replace")
+    for guard in (
+        "A/B or dynamic-partition payload forbidden on legacy non-A/B",
+        '{"payload.bin","super.img"}',
+        "expected exactly one boot.img",
+    ):
+        if guard not in final_package_text:
+            raise RuntimeError(
+                f"required final-package audit guard missing: {guard}"
             )
     print("AUTOPILOT_SELF_TEST=PASS")
     print(f"KNOWLEDGE_PROBLEMS={len(knowledge.get('known_build_failures_and_fixes', []))}")
