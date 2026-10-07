@@ -50,6 +50,9 @@ HELPERS = (
     "audit-built-output.py",
     "audit-final-package.py",
 )
+AUXILIARY_TOOLS = (
+    "export-cloud-seed.sh",
+)
 FORBIDDEN_COMMAND_PATTERNS = (
     r"(^|\s)adb(\s|$)",
     r"(^|\s)fastboot(\s|$)",
@@ -283,6 +286,8 @@ class Autopilot:
 
         for name in HELPERS:
             self.fetch_repo_file(f"tb8504-build/scripts/{name}", self.tools / name)
+        for name in AUXILIARY_TOOLS:
+            self.fetch_repo_file(f"tb8504-build/scripts/{name}", self.tools / name)
         self.fetch_repo_file(KNOWLEDGE_PATH, self.report / "autopilot-knowledge.json")
         try:
             self.knowledge = json.loads((self.report / "autopilot-knowledge.json").read_text("utf-8"))
@@ -304,7 +309,7 @@ class Autopilot:
         self.say(f"ROOT={self.root}")
         self.say(f"GOAL={self.goal}")
         required_cmds = (
-            "git", "gh", "python3", "bash", "readelf", "sha256sum",
+            "git", "gh", "python3", "bash", "curl", "readelf", "sha256sum",
             "modinfo", "openssl",
         )
         for cmd in required_cmds:
@@ -1073,6 +1078,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
     def refresh_module_metadata(self) -> None:
         """Regenerate module-info.json after source convergence before builds."""
         if self.goal == "converge":
+            self.export_converged_seed()
             return
         self.say("")
         self.say("=== REFRESH ANDROID MODULE METADATA ===")
@@ -1133,6 +1139,61 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.save_state()
         self.say("MODULE_INFO_SOURCE_BINDING=PASS")
         self.say("RUNTIME_REFRESHED_MODULE_INFO_AUDIT=PASS")
+
+    def export_converged_seed(self) -> Path:
+        """Export an audited v2 seed from the exact converged source state.
+
+        No build and no upload are performed here. The exporter and its
+        cloud-seed auditor are pinned to the same immutable tooling commit as
+        this running autopilot.
+        """
+        self.say("")
+        self.say("=== EXPORT AUDITED CLOUD SEED V2 ===")
+        exporter=self.tools/"export-cloud-seed.sh"
+        if not exporter.is_file() or exporter.stat().st_size<=0:
+            raise StopAutopilot(f"pinned seed exporter missing: {exporter}")
+
+        r=self.run(
+            [
+                "env",
+                f"TB8504_TOOLING_REF={self.tooling_ref}",
+                "TB8504_UPLOAD_DRAFT=0",
+                f"TB8504_GITHUB_REPO={REPO}",
+                f"TB8504_GITHUB_TARGET={BRANCH}",
+                "bash",str(exporter),str(self.root),
+            ],
+            log_name="export-cloud-seed-v2.log",
+        )
+        if r.rc!=0:
+            raise StopAutopilot(f"cloud seed v2 export failed rc={r.rc}")
+        kv=self.parse_kv(r.text)
+        if kv.get("FINAL_RC")!="0":
+            raise StopAutopilot(
+                f"cloud seed exporter did not report FINAL_RC=0: {kv}"
+            )
+        if "ARCHIVE_INTEGRITY=PASS" not in r.text:
+            raise StopAutopilot("cloud seed archive integrity marker missing")
+        if "LOCAL_CLOUD_SEED_AUDIT=PASS" not in r.text:
+            raise StopAutopilot("local cloud-seed auditor did not pass")
+
+        raw=kv.get("CLOUD_SEED_ARCHIVE","")
+        archive=Path(raw)
+        if not raw or not archive.is_file() or archive.stat().st_size<=0:
+            raise StopAutopilot(f"cloud seed archive missing after export: {raw!r}")
+        seed_sha=self.sha_file(archive)
+        self.status["cloud_seed_v2"]={
+            "path":str(archive),
+            "sha256":seed_sha,
+            "size":archive.stat().st_size,
+            "tooling_ref":self.tooling_ref,
+            "uploaded":False,
+        }
+        self.say(f"CLOUD_SEED_V2={archive}")
+        self.say(f"CLOUD_SEED_V2_SIZE={archive.stat().st_size}")
+        self.say(f"CLOUD_SEED_V2_SHA256={seed_sha}")
+        self.say("CLOUD_SEED_V2_UPLOAD=NO")
+        self.say("CLOUD_SEED_V2_EXPORT=PASS")
+        return archive
 
     def detect_vendor_partition(self) -> bool:
         size = self.release_info.get("BOARD_VENDORIMAGE_PARTITION_SIZE", "").strip()
@@ -1882,6 +1943,9 @@ def static_self_test() -> None:
     for name in HELPERS:
         if not (repo_root / "tb8504-build/scripts" / name).is_file():
             raise RuntimeError(f"helper missing from repository: {name}")
+    for name in AUXILIARY_TOOLS:
+        if not (repo_root / "tb8504-build/scripts" / name).is_file():
+            raise RuntimeError(f"auxiliary tool missing from repository: {name}")
 
     for legacy_name in (
         "local-pre-recovery.sh",
