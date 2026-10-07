@@ -8,7 +8,7 @@ on:
       - "tb8504-build/requests/live/boot-*.txt"
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 concurrency:
