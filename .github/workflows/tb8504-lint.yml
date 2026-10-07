@@ -214,9 +214,11 @@ jobs:
           dev_untracked_rel="rootdir/etc/tb8504-selftest.txt"
           dev_untracked_data=b"provenance bytes\n"
           dev_untracked_digest=h(dev_untracked_data)
+          dev_untracked_mode=0o755
           dev_untracked_row={
               "path":dev_untracked_rel,
               "type":"file",
+              "mode":dev_untracked_mode,
               "size":len(dev_untracked_data),
               "sha256":dev_untracked_digest,
           }
@@ -224,6 +226,8 @@ jobs:
           uh.update(dev_untracked_rel.encode()+b"\0")
           uh.update(
               b"F\0"
+              + str(dev_untracked_mode).encode()
+              + b"\0"
               + str(len(dev_untracked_data)).encode()
               + b"\0"
               + dev_untracked_digest.encode()
@@ -290,10 +294,12 @@ jobs:
                   z.writestr("meta/primary-source-state.json",json.dumps(primary))
                   for rel,data in patches.items():
                       z.writestr("patches/"+rel.replace("/","__")+".patch",data)
-                  z.writestr(
-                      "untracked/device/lenovo/TB8504/"+dev_untracked_rel,
-                      dev_untracked_data,
+                  info=zipfile.ZipInfo(
+                      "untracked/device/lenovo/TB8504/"+dev_untracked_rel
                   )
+                  info.create_system=3
+                  info.external_attr=(dev_untracked_mode & 0xFFFF) << 16
+                  z.writestr(info,dev_untracked_data)
               p=subprocess.run([
                   "python3","tb8504-build/scripts/accept-converged-provenance.py",
                   "--seed",str(seed),
@@ -321,6 +327,29 @@ jobs:
                       if info.filename == "untracked/device/lenovo/TB8504/"+dev_untracked_rel:
                           data=b"tampered bytes\n"
                       dst.writestr(info, data)
+              bad_mode_seed=td/"seed-bad-mode.zip"
+              with zipfile.ZipFile(seed) as src, zipfile.ZipFile(bad_mode_seed,"w") as dst:
+                  for info in src.infolist():
+                      data=src.read(info.filename)
+                      out_info=zipfile.ZipInfo(info.filename)
+                      out_info.create_system=3
+                      mode=(info.external_attr >> 16) & 0o7777
+                      if info.filename == "untracked/device/lenovo/TB8504/"+dev_untracked_rel:
+                          mode=0o644
+                      out_info.external_attr=(mode & 0xFFFF) << 16
+                      dst.writestr(out_info,data)
+              bad_mode=subprocess.run([
+                  "python3","tb8504-build/scripts/accept-converged-provenance.py",
+                  "--seed",str(bad_mode_seed),
+                  "--knowledge",str(kin),
+                  "--out",str(td/"should-not-exist-mode.json"),
+                  "--release-tag","tb8504-selftest",
+                  "--request-commit",request,
+                  "--tooling-ref",tooling,
+              ],text=True,capture_output=True)
+              assert bad_mode.returncode != 0
+              assert "untracked file mode mismatch" in (bad_mode.stdout+bad_mode.stderr)
+
               bad=subprocess.run([
                   "python3","tb8504-build/scripts/accept-converged-provenance.py",
                   "--seed",str(bad_seed),
