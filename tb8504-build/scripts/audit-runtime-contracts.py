@@ -170,6 +170,36 @@ def source_modules(root: Path) -> set[str]:
     return result
 
 
+def module_info_installed_paths(path: Path | None) -> set[str]:
+    result: set[str] = set()
+    if path is None or not path.is_file():
+        return result
+
+    data = json.loads(path.read_text("utf-8", errors="replace"))
+    marker = "out/target/product/TB8504/"
+    for module in data.values():
+        for installed in module.get("installed", []):
+            if marker not in installed:
+                continue
+            rel = installed.split(marker, 1)[1]
+            if rel.startswith("system/vendor/"):
+                target = "/vendor/" + rel[len("system/vendor/"):]
+            elif rel.startswith("system/system_ext/"):
+                target = "/system_ext/" + rel[len("system/system_ext/"):]
+            elif rel.startswith("system/product/"):
+                target = "/product/" + rel[len("system/product/"):]
+            elif rel.startswith("system/"):
+                target = "/system/" + rel[len("system/"):]
+            elif rel.startswith("vendor/"):
+                target = "/vendor/" + rel[len("vendor/"):]
+            elif rel.startswith("product/"):
+                target = "/product/" + rel[len("product/"):]
+            else:
+                continue
+            result.update(aliases(target))
+    return result
+
+
 def parse_service_headers(device_root: Path) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     for rc in sorted(device_root.rglob("*.rc")):
@@ -288,6 +318,7 @@ def main() -> int:
     ap.add_argument("--vendor", required=True, type=Path)
     ap.add_argument("--device", required=True, type=Path)
     ap.add_argument("--report-dir", required=True, type=Path)
+    ap.add_argument("--module-info", type=Path)
     args = ap.parse_args()
 
     vendor_root = args.vendor.resolve()
@@ -297,6 +328,8 @@ def main() -> int:
 
     installed_paths = product_copy_destinations(vendor_root)
     installed_paths |= product_copy_destinations(device_root)
+    module_info_paths = module_info_installed_paths(args.module_info)
+    installed_paths |= module_info_paths
     packages = product_packages(vendor_root) | product_packages(device_root)
     modules = source_modules(vendor_root) | source_modules(device_root)
 
@@ -360,6 +393,7 @@ def main() -> int:
     report = {
         "service_count": len(services),
         "installed_path_count": len(installed_paths),
+        "module_info_installed_path_count": len(module_info_paths),
         "package_count": len(packages),
         "module_count": len(modules),
         "unresolved_services": unresolved,
@@ -385,6 +419,7 @@ def main() -> int:
 
     print("=== TB8504 RUNTIME CONTRACT AUDIT ===")
     print(f"INIT_SERVICE_COUNT={len(services)}")
+    print(f"MODULE_INFO_INSTALLED_PATHS={len(module_info_paths)}")
     print(f"UNRESOLVED_INIT_SERVICES={len(unresolved)}")
     print(f"REMOVED_SERVICE_REFERENCES={len(removed_refs)}")
     print(f"DUPLICATE_INIT_SERVICE_NAMES={len(duplicates)}")
