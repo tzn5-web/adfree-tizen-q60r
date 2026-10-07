@@ -289,6 +289,32 @@ def parse_sdk_overrides(device_root: Path) -> list[dict[str, str]]:
     return result
 
 
+def stale_camera_sepolicy_refs(device_root: Path) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    sepolicy = device_root / "sepolicy"
+    if not sepolicy.is_dir():
+        return refs
+
+    for path in sorted(sepolicy.rglob("*")):
+        if not path.is_file():
+            continue
+        if path.suffix not in {".te", ".cil"} and "context" not in path.name:
+            continue
+        for line_no, raw in enumerate(
+            path.read_text("utf-8", errors="replace").splitlines(), 1
+        ):
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "mm-qcamerad" in stripped:
+                refs.append({
+                    "file": str(path.relative_to(device_root)),
+                    "line": str(line_no),
+                    "text": stripped,
+                })
+    return refs
+
+
 def vintf_inventory(device_root: Path) -> tuple[list[dict[str, str]], list[str]]:
     hals: list[dict[str, str]] = []
     errors: list[str] = []
@@ -389,6 +415,7 @@ def main() -> int:
     stale_hals = [
         item for item in hals if item["name"] in REMOVED_HAL_NAMES
     ]
+    stale_sepolicy = stale_camera_sepolicy_refs(device_root)
 
     report = {
         "service_count": len(services),
@@ -404,6 +431,7 @@ def main() -> int:
         "vintf_hals": hals,
         "vintf_parse_errors": vintf_errors,
         "stale_vintf_hals": stale_hals,
+        "stale_camera_sepolicy_references": stale_sepolicy,
     }
     (report_dir / "runtime-contracts.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
@@ -428,6 +456,7 @@ def main() -> int:
     print(f"VINTF_HAL_DECLARATIONS={len(hals)}")
     print(f"VINTF_PARSE_ERRORS={len(vintf_errors)}")
     print(f"STALE_VINTF_HAL_DECLARATIONS={len(stale_hals)}")
+    print(f"STALE_CAMERA_SEPOLICY_REFERENCES={len(stale_sepolicy)}")
 
     for row in unresolved:
         print(
@@ -451,6 +480,11 @@ def main() -> int:
         print(f"STALE_VINTF_HAL={item['name']}|{item['file']}")
     for err in vintf_errors:
         print(f"VINTF_PARSE_ERROR={err}")
+    for item in stale_sepolicy:
+        print(
+            f"STALE_CAMERA_SEPOLICY={item['file']}:{item['line']}|"
+            f"{item['text']}"
+        )
 
     failures = (
         len(unresolved)
@@ -459,6 +493,7 @@ def main() -> int:
         + len(stale_overrides)
         + len(stale_hals)
         + len(vintf_errors)
+        + len(stale_sepolicy)
     )
     print(f"RUNTIME_CONTRACT_FAILURES={failures}")
     if failures:
