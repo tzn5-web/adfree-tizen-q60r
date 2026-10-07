@@ -40,7 +40,9 @@ HELPERS = (
     "apply-runtime-cleanup.py",
     "apply-residual-cleanup.py",
     "apply-product-compat.py",
+    "apply-performance-compat.py",
     "audit-product-compat.py",
+    "audit-performance-compat.py",
     "audit-residual-contracts.py",
     "audit-stage8n.py",
     "audit-runtime-contracts.py",
@@ -918,7 +920,24 @@ class Autopilot:
             "product-compat",
         )
 
-        self.source_changed = runtime_changed or residual_changed or product_changed
+        performance_changed = self.run_idempotent_transform(
+            "apply-performance-compat.py",
+            lambda report, patch: [
+                "--device", str(self.device),
+                "--patch-out", str(patch),
+                "--report-out", str(report),
+            ],
+            "PERFORMANCE_COMPAT_STATE",
+            "PERFORMANCE_COMPAT",
+            "performance-compat",
+        )
+
+        self.source_changed = (
+            runtime_changed
+            or residual_changed
+            or product_changed
+            or performance_changed
+        )
         self.say(f"SOURCE_CHANGED_THIS_RUN={'YES' if self.source_changed else 'NO'}")
 
         shell_files = sorted((self.device / "rootdir").rglob("*.sh"))
@@ -938,6 +957,14 @@ class Autopilot:
         )
         if r.rc != 0 or "TB8504_PRODUCT_COMPAT_AUDIT=PASS" not in r.text:
             raise StopAutopilot("product compatibility audit failed")
+
+        r = self.helper(
+            "audit-performance-compat.py",
+            ["--device", str(self.device)],
+            "audit-performance-compat.log",
+        )
+        if r.rc != 0 or "TB8504_PERFORMANCE_SOURCE_AUDIT=PASS" not in r.text:
+            raise StopAutopilot("low-end graphics performance source audit failed")
 
         r = self.helper(
             "audit-residual-contracts.py",
