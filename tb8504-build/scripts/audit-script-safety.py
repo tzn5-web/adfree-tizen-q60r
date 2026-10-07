@@ -18,7 +18,8 @@ FORBIDDEN_CMD = re.compile(r"(^|[;&|()]\s*)(adb|fastboot)(\s|$)", re.I)
 FORBIDDEN_CLEAN = re.compile(r"\b(?:mka|make)\s+(?:clean|installclean|clobber)\b", re.I)
 FORBIDDEN_DEV_WRITE = re.compile(
     r"\bdd\b[^\n]*\bof=/dev/|"
-    r"\b(?:cp|mv|tee)\b[^\n]*(?:>|/dev/(?:block|snd))",
+    r"\b(?:cp|mv|tee)\b[^\n]*/dev/(?:block|snd)|"
+    r">\s*/dev/(?:block|snd)",
     re.I,
 )
 
