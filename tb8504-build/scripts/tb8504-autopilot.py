@@ -45,6 +45,7 @@ HELPERS = (
     "audit-stage8n.py",
     "audit-runtime-contracts.py",
     "audit-local-image.py",
+    "audit-built-output.py",
 )
 FORBIDDEN_COMMAND_PATTERNS = (
     r"(^|\s)adb(\s|$)",
@@ -780,16 +781,17 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         image = self.product_out / f"{kind}.img"
         if not image.is_file() or image.stat().st_size <= 0:
             raise StopAutopilot(f"{kind}.img missing/empty after successful build")
-        data = image.read_bytes()
-        stored = len(data)
+        stored = image.stat().st_size
+        with image.open("rb") as fh:
+            header = fh.read(28)
         expanded = stored
         sparse = False
-        if len(data) >= 28 and struct.unpack_from("<I", data, 0)[0] == 0xED26FF3A:
+        if len(header) >= 28 and struct.unpack_from("<I", header, 0)[0] == 0xED26FF3A:
             sparse = True
             (
                 _magic, major, minor, file_hdr_sz, chunk_hdr_sz,
                 blk_sz, total_blks, total_chunks, checksum,
-            ) = struct.unpack_from("<I4H4I", data, 0)
+            ) = struct.unpack_from("<I4H4I", header, 0)
             if major != 1 or file_hdr_sz < 28 or chunk_hdr_sz < 12 or blk_sz <= 0:
                 raise StopAutopilot(f"{kind}.img has invalid Android sparse header")
             expanded = blk_sz * total_blks
@@ -797,7 +799,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             raise StopAutopilot(
                 f"{kind}.img expanded size exceeds partition: {expanded} > {limit}"
             )
-        sha = hashlib.sha256(data).hexdigest()
+        sha = self.sha_file(image)
         self.say(f"{kind.upper()}_IMAGE_SPARSE={'YES' if sparse else 'NO'}")
         self.say(f"{kind.upper()}_IMAGE_STORED_SIZE={stored}")
         self.say(f"{kind.upper()}_IMAGE_EXPANDED_SIZE={expanded}")
@@ -856,8 +858,34 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.say(f"FINAL_ROM={rom}")
         self.say(f"FINAL_ROM_SIZE={rom.stat().st_size}")
         self.say(f"FINAL_ROM_SHA256={sha}")
+
         self.converge_sources()
         self.say("FINAL_ROM_POSTBUILD_SOURCE_GATES=PASS")
+
+        output_dir = self.report / "actual-built-output"
+        output_dir.mkdir(exist_ok=True)
+        r = self.helper(
+            "audit-built-output.py",
+            ["--root", str(self.root), "--report-dir", str(output_dir)],
+            "audit-built-output.log",
+        )
+        if r.rc != 0 or "ACTUAL_BUILT_OUTPUT_AUDIT=PASS" not in r.text:
+            classified = self.classify_failure(r.text, "bacon-postbuild")
+            if classified and self.apply_handler(classified[0], "bacon-postbuild"):
+                self.say("POSTBUILD_SELF_HEAL_REQUIRES_REBUILD=YES")
+                self.build_target("bacon")
+                self.source_changed = False
+                self.ensure_image("boot")
+                self.ensure_image("recovery")
+                r = self.helper(
+                    "audit-built-output.py",
+                    ["--root", str(self.root), "--report-dir", str(output_dir)],
+                    "audit-built-output-retry.log",
+                )
+            if r.rc != 0 or "ACTUAL_BUILT_OUTPUT_AUDIT=PASS" not in r.text:
+                self.write_unknown_error("bacon-postbuild", r)
+                raise StopAutopilot("actual built-output audit failed")
+        self.say("ACTUAL_BUILT_OUTPUT_AUDIT=PASS")
         self.say("FULL_ROM_STAGE=PASS")
 
     def next_stage(self) -> None:
@@ -927,13 +955,21 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             json.dumps(self.status, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        self.snapshot_sources("final")
+        try:
+            self.snapshot_sources("final")
+        except Exception as exc:
+            self.say(f"FINAL_SNAPSHOT_WARNING={type(exc).__name__}: {exc}")
         self.full_log.flush()
-        archive = self.archive_report()
+        try:
+            archive = self.archive_report()
+        except Exception as exc:
+            archive = Path("")
+            self.say(f"REPORT_ARCHIVE_WARNING={type(exc).__name__}: {exc}")
         self.say(f"AUTOPILOT_STATUS={'PASS' if success else 'BLOCKED'}")
         self.say("NO_FLASH=YES")
         self.say(f"REPORT={self.report}")
-        self.say(f"REPORT_ZIP={archive}")
+        if str(archive):
+            self.say(f"REPORT_ZIP={archive}")
 
     def execute(self) -> None:
         self.preflight()
@@ -971,6 +1007,52 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
 def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
+def static_self_test() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    knowledge_file = repo_root / KNOWLEDGE_PATH
+    if not knowledge_file.is_file():
+        raise RuntimeError(f"knowledge base missing: {knowledge_file}")
+    knowledge = json.loads(knowledge_file.read_text("utf-8"))
+    if knowledge.get("schema_version") != 1:
+        raise RuntimeError("unexpected knowledge schema")
+    safety = knowledge.get("safety_contract", {})
+    for key in (
+        "no_adb", "no_fastboot", "no_flash", "no_device_block_writes",
+        "no_clean", "no_installclean", "no_clobber",
+        "no_private_signing_key_export",
+    ):
+        if safety.get(key) is not True:
+            raise RuntimeError(f"safety contract missing/false: {key}")
+    recovery = knowledge.get("successful_artifacts", {}).get("recovery_current", {})
+    if recovery.get("sha256") != KNOWN_RECOVERY_SHA256:
+        raise RuntimeError("recovery knowledge SHA mismatch")
+    if recovery.get("size") != KNOWN_RECOVERY_SIZE:
+        raise RuntimeError("recovery knowledge size mismatch")
+    if recovery.get("kernel_sha256") != KNOWN_RECOVERY_KERNEL_SHA256:
+        raise RuntimeError("recovery kernel knowledge SHA mismatch")
+    source = knowledge.get("source_baselines", {})
+    if source.get("device", {}).get("sha") != EXPECTED_HEADS["device/lenovo/TB8504"]:
+        raise RuntimeError("device baseline mismatch")
+    if source.get("vendor", {}).get("sha") != EXPECTED_HEADS["vendor/lenovo/TB8504"]:
+        raise RuntimeError("vendor baseline mismatch")
+    if source.get("kernel", {}).get("sha") != EXPECTED_HEADS["kernel/lenovo/msm8917"]:
+        raise RuntimeError("kernel baseline mismatch")
+    supported = set(knowledge.get("autopilot_policy", {}).get("supported_goals", []))
+    expected_goals = {"converge","boot","recovery","next","system","rom"}
+    if supported != expected_goals:
+        raise RuntimeError(f"supported-goal mismatch: {supported}")
+    for name in HELPERS:
+        if not (repo_root / "tb8504-build/scripts" / name).is_file():
+            raise RuntimeError(f"helper missing from repository: {name}")
+    src = Path(__file__).read_text("utf-8", errors="replace")
+    for forbidden in ("mka clean", "mka installclean", "mka clobber"):
+        if forbidden in src:
+            raise RuntimeError(f"forbidden destructive build command present: {forbidden}")
+    print("AUTOPILOT_SELF_TEST=PASS")
+    print(f"KNOWLEDGE_PROBLEMS={len(knowledge.get('known_build_failures_and_fixes', []))}")
+    print(f"RECOVERY_BASELINE_SHA256={KNOWN_RECOVERY_SHA256}")
+    print("NO_FLASH=YES")
+
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description="TB8504 deterministic staged self-healing Android 16 autopilot"
@@ -992,10 +1074,18 @@ def parse_args() -> argparse.Namespace:
     )
     ap.add_argument("--max-attempts", type=int, default=3)
     ap.add_argument("--show-knowledge", action="store_true")
+    ap.add_argument("--self-test", action="store_true")
     return ap.parse_args()
 
 def main() -> int:
     args = parse_args()
+    if args.self_test:
+        try:
+            static_self_test()
+            return 0
+        except Exception as exc:
+            print(f"AUTOPILOT_SELF_TEST=FAIL: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 2
     if args.max_attempts < 1 or args.max_attempts > 5:
         print("max-attempts must be in 1..5", file=sys.stderr)
         return 2
