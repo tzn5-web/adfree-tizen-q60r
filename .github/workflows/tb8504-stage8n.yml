@@ -140,18 +140,81 @@ jobs:
           with zipfile.ZipFile(seed) as z:
               for name in (
                   "device_lenovo_TB8504.tar.gz",
+                  "patches/device__lenovo__TB8504.patch",
                   "patches/vendor__lenovo__TB8504.patch",
+                  "meta/primary-source-state.json",
                   "meta/module-info.json",
               ):
                   (root / Path(name).name).write_bytes(z.read(name))
-          device_root = root / "device"
-          device_root.mkdir(exist_ok=True)
+          device_tar_root = root / "device-tar"
+          device_tar_root.mkdir(exist_ok=True)
           with tarfile.open(root / "device_lenovo_TB8504.tar.gz", "r:gz") as tf:
-              tf.extractall(device_root)
+              tf.extractall(device_tar_root)
           PY
-          test -f /tmp/tb8504-stage8n/reconstructed/device/TB8504/BoardConfig.mk
+          test -f /tmp/tb8504-stage8n/reconstructed/device-tar/TB8504/BoardConfig.mk
+          test -f /tmp/tb8504-stage8n/reconstructed/device__lenovo__TB8504.patch
           test -f /tmp/tb8504-stage8n/reconstructed/vendor__lenovo__TB8504.patch
+          test -f /tmp/tb8504-stage8n/reconstructed/primary-source-state.json
           test -f /tmp/tb8504-stage8n/reconstructed/module-info.json
+
+      - name: Reconstruct exact patched device tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tb8504-build/config/stage8n.env
+          DEVICE=/tmp/tb8504-stage8n/reconstructed/device/TB8504
+          mkdir -p "$(dirname "$DEVICE")"
+          git init -q "$DEVICE"
+          git -C "$DEVICE" remote add origin "$DEVICE_REPO"
+          git -C "$DEVICE" fetch -q --depth 1 origin "$DEVICE_SHA"
+          git -C "$DEVICE" checkout -q --detach FETCH_HEAD
+          ACTUAL="$(git -C "$DEVICE" rev-parse HEAD)"
+          [ "$ACTUAL" = "$DEVICE_SHA" ] || {
+            echo "Device baseline mismatch: $ACTUAL != $DEVICE_SHA" >&2
+            exit 9
+          }
+
+          DEVICE_PATCH=/tmp/tb8504-stage8n/reconstructed/device__lenovo__TB8504.patch
+          if [ -s "$DEVICE_PATCH" ]; then
+            git -C "$DEVICE" apply --check "$DEVICE_PATCH"
+            git -C "$DEVICE" apply "$DEVICE_PATCH"
+          fi
+
+          python3 - "$SEED_ZIP" "$DEVICE" <<'PY'
+          import sys, zipfile
+          from pathlib import Path
+          seed = Path(sys.argv[1])
+          device = Path(sys.argv[2]).resolve()
+          prefix = "untracked/device/lenovo/TB8504/"
+          with zipfile.ZipFile(seed) as z:
+              for name in z.namelist():
+                  if not name.startswith(prefix) or name.endswith("/"):
+                      continue
+                  rel = Path(name[len(prefix):])
+                  if rel.is_absolute() or ".." in rel.parts:
+                      raise SystemExit(f"unsafe device untracked path: {name}")
+                  dst = (device / rel).resolve()
+                  if device not in dst.parents:
+                      raise SystemExit(f"device untracked path escapes tree: {name}")
+                  dst.parent.mkdir(parents=True, exist_ok=True)
+                  dst.write_bytes(z.read(name))
+          PY
+
+          EXPECTED_PATCH_SHA="$(python3 - <<'PY'
+          import json
+          p=json.load(open("/tmp/tb8504-stage8n/reconstructed/primary-source-state.json"))
+          print(p["device/lenovo/TB8504"]["patch_sha256"])
+          PY
+          )"
+          ACTUAL_PATCH_SHA="$(git -C "$DEVICE" diff --binary HEAD | sha256sum | awk '{print $1}')"
+          [ "$ACTUAL_PATCH_SHA" = "$EXPECTED_PATCH_SHA" ] || {
+            echo "Device reconstructed patch mismatch: $ACTUAL_PATCH_SHA != $EXPECTED_PATCH_SHA" >&2
+            exit 9
+          }
+
+          diff -qr --exclude=.git             /tmp/tb8504-stage8n/reconstructed/device-tar/TB8504             "$DEVICE"
+          echo "DEVICE_RECONSTRUCTED_FROM_PROVENANCE=PASS" |             tee -a /tmp/tb8504-stage8n/report/STATUS.txt
+          echo "DEVICE_TAR_PROVENANCE_BINDING=PASS" |             tee -a /tmp/tb8504-stage8n/report/STATUS.txt
 
       - name: Reconstruct exact patched vendor tree
         shell: bash
