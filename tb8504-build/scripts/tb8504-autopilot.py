@@ -1558,6 +1558,46 @@ def static_self_test() -> None:
         raise RuntimeError("vendor baseline mismatch")
     if source.get("kernel", {}).get("sha") != EXPECTED_HEADS["kernel/lenovo/msm8917"]:
         raise RuntimeError("kernel baseline mismatch")
+    integrity = knowledge.get("source_integrity_contracts", {})
+    static = integrity.get("static_target_repos", {})
+    expected_static = {
+        "hardware/qcom-caf/msm8996/audio",
+        "hardware/qcom-caf/msm8996/media",
+        "hardware/qcom-caf/msm8996/display",
+        "hardware/lineage/compat",
+        "device/qcom/sepolicy-legacy-um",
+        "external/XMP-Toolkit-SDK",
+        "external/google-highway",
+        "external/skia",
+    }
+    if set(static) != expected_static:
+        raise RuntimeError(
+            f"static source-integrity repo set mismatch: {sorted(static)}"
+        )
+    for rel, spec in static.items():
+        if not re.fullmatch(r"[0-9a-f]{40}", str(spec.get("head", ""))):
+            raise RuntimeError(f"invalid source-integrity HEAD: {rel}")
+        if not re.fullmatch(
+            r"[0-9a-f]{64}", str(spec.get("patch_sha256", ""))
+        ):
+            raise RuntimeError(f"invalid source-integrity patch hash: {rel}")
+
+    dynamic = integrity.get("dynamic_primary_repos", {})
+    if set(dynamic) != {"device/lenovo/TB8504", "vendor/lenovo/TB8504"}:
+        raise RuntimeError(
+            f"dynamic primary repo contract mismatch: {sorted(dynamic)}"
+        )
+    if (
+        integrity.get("required_unproven_repo")
+        != "hardware/qcom-caf/msm8996/gps"
+    ):
+        raise RuntimeError("unexpected GPS provenance target")
+    host = integrity.get("host_only_repo", {})
+    if host.get("path") != "prebuilts/rust":
+        raise RuntimeError("host-only Rust contract missing")
+    if host.get("allowed_dirty_prefix") != "windows-x86/":
+        raise RuntimeError("host-only Rust dirty scope mismatch")
+
     supported = set(knowledge.get("autopilot_policy", {}).get("supported_goals", []))
     expected_goals = {"converge","boot","recovery","next","system","rom"}
     if supported != expected_goals:
@@ -1611,7 +1651,10 @@ def main() -> int:
             static_self_test()
             return 0
         except Exception as exc:
-            print(f"AUTOPILOT_SELF_TEST=FAIL: {type(exc).__name__}: {exc}", file=sys.stderr)
+            print(
+                f"AUTOPILOT_SELF_TEST=FAIL: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
             return 2
     if args.max_attempts < 1 or args.max_attempts > 5:
         print("max-attempts must be in 1..5", file=sys.stderr)
@@ -1619,40 +1662,13 @@ def main() -> int:
 
     auto = Autopilot(args.root, args.goal, args.max_attempts)
     try:
-        auto.preflight()
         if args.show_knowledge:
+            auto.preflight()
             print(json.dumps(auto.knowledge, indent=2, sort_keys=True))
             auto.finish(True, "knowledge displayed")
             return 0
 
-        # preflight was already run above; execute the remaining pipeline.
-        auto.converge_sources()
-        auto.release_gate()
-
-        if auto.goal == "converge":
-            pass
-        elif auto.goal == "boot":
-            auto.ensure_image("boot")
-        elif auto.goal == "recovery":
-            auto.ensure_image("boot")
-            auto.source_changed = False
-            auto.ensure_image("recovery")
-        elif auto.goal == "next":
-            auto.next_stage()
-        elif auto.goal == "system":
-            auto.ensure_image("boot")
-            auto.source_changed = False
-            auto.ensure_image("recovery")
-            auto.ensure_system()
-        elif auto.goal == "rom":
-            auto.ensure_image("boot")
-            auto.source_changed = False
-            auto.ensure_image("recovery")
-            auto.ensure_system()
-            auto.full_rom()
-        else:
-            raise StopAutopilot(f"unsupported goal: {auto.goal}")
-
+        auto.execute()
         auto.finish(True, f"goal {auto.goal} completed")
         return 0
     except KeyboardInterrupt:
