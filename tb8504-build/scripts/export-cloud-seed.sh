@@ -202,7 +202,7 @@ for REL in "${REPOS[@]}"; do
         fi
         DST="$OUT/untracked/$REL/$F"
         mkdir -p "$(dirname "$DST")"
-        cp -f "$SRC" "$DST"
+        cp --preserve=mode -f "$SRC" "$DST"
     done < <(git -C "$DIR" ls-files --others --exclude-standard -z 2>/dev/null)
 done
 
