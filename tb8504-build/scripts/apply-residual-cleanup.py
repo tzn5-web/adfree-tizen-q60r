@@ -174,6 +174,16 @@ def remove_dead_controls(device: Path) -> int:
             if m and m.group("service") in ABSENT_SERVICES:
                 refs += 1
                 local += 1
+                if p.suffix != ".sh":
+                    fail(
+                        "stale removed-service control found outside shell script: "
+                        f"{p.relative_to(device)}:{m.group('service')}"
+                    )
+                indent = raw[: len(raw) - len(raw.lstrip())]
+                out.append(
+                    f"{indent}: # ANDROID16_BRINGUP: removed stale control "
+                    f"for {m.group('service')}\n"
+                )
                 continue
             out.append(raw)
         if local:
