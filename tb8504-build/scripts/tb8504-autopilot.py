@@ -1760,6 +1760,20 @@ def static_self_test() -> None:
     for name in HELPERS:
         if not (repo_root / "tb8504-build/scripts" / name).is_file():
             raise RuntimeError(f"helper missing from repository: {name}")
+
+    for legacy_name in (
+        "local-pre-recovery.sh",
+        "local-recovery-stage.sh",
+        "local-stage-image.sh",
+        "local-finalize-android16.sh",
+    ):
+        legacy_path = repo_root / "tb8504-build/scripts" / legacy_name
+        if not legacy_path.is_file():
+            raise RuntimeError(f"legacy support runner missing: {legacy_name}")
+        legacy_text = legacy_path.read_text("utf-8", errors="replace")
+        if "LEGACY_RUNNER_LOCKED=YES" not in legacy_text:
+            raise RuntimeError(f"legacy runner is not locked: {legacy_name}")
+
     source_text = Path(__file__).read_text("utf-8", errors="replace")
     required_guards = (
         "FORBIDDEN_COMMAND_PATTERNS",
