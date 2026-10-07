@@ -70,7 +70,10 @@
     "boot_seed_sha256": "09432d14b103881fe9d4940edf2175a7ec7118aea7dcda87cf33f38b6254bac3",
     "integrity": "97 ZIP entries; testzip clean; 96/96 SHA256SUMS verified; no credential-pattern findings",
     "coverage": "INCOMPLETE_FOR_FINAL_PROVENANCE",
-    "coverage_blocker": "hardware/qcom-caf/msm8996/gps was listed in EXPORTED_REPOS but absent from REPOS metadata and per-repo patch/status/mbox; exporter/auditor are now hardened and the next seed must capture it."
+    "coverage_blocker": "hardware/qcom-caf/msm8996/gps was listed in EXPORTED_REPOS but absent from REPOS metadata and per-repo patch/status/mbox; exporter/auditor are now hardened and the next seed must capture it.",
+    "required_format_version": 2,
+    "legacy_seed_only": true,
+    "legacy_seed_reason": "Historical seed predates complete GPS/workspace provenance and v2 requested/missing-repo metadata. Generate a new v2 seed from the current autopilot converge goal."
   },
   "kernel_and_module_history": {
     "expected_module_count": 12,
@@ -255,6 +258,16 @@
       "symptom": "Full mka bacon takes hours and exposes errors late",
       "cause": "Using full ROM build as an intermediate diagnostic",
       "fix": "Build staged targets and audit each layer first; run bacon only after staged gates pass."
+    },
+    {
+      "symptom": "Stale module-info.json can survive source transforms",
+      "cause": "module-info.json is cached build metadata and may describe the previous source state",
+      "fix": "Converge uses source-only runtime evidence. Build goals run AOSP refreshmod and then repeat the runtime audit with fresh module-info.json."
+    },
+    {
+      "symptom": "Android 16 tree advertises background blur on low-end TB8504",
+      "cause": "Newer device-tree properties enabled SurfaceFlinger blur capability while carrying mixed-generation graphics tuning",
+      "fix": "Set ro.surface_flinger.supports_background_blur=0, remove stale debug.sf.disable_backpressure, retain proven Android-10-era Qualcomm graphics settings until hardware frame-timing evidence says otherwise."
     }
   ],
   "successful_artifacts": {
@@ -298,20 +311,33 @@
     ],
     "stage_order": [
       "source_convergence",
+      "performance_source_contract",
+      "source_only_runtime_contracts",
+      "release_identity",
+      "refresh_module_metadata_before_build",
       "boot",
       "recovery",
       "detect_partition_topology",
       "vendor_if_real_partition",
       "system",
       "full_rom",
-      "postbuild_output_audit"
+      "postbuild_output_audit",
+      "final_package_semantic_audit"
     ],
     "retry_policy": {
       "max_same_handler_uses": 1,
       "max_build_attempts_per_target": 3,
       "never_retry_unknown_error": true
     },
-    "final_authority": "Actual built output plus post-build audits; never source audit alone."
+    "final_authority": "Actual built output plus post-build audits; never source audit alone.",
+    "single_entry_point": "tb8504-build/scripts/tb8504-autopilot.py",
+    "converge_side_effects": [
+      "source transforms and audits only",
+      "no Android target build",
+      "no device access",
+      "automatic audited cloud seed v2 export",
+      "no automatic upload"
+    ]
   },
   "source_integrity_contracts": {
     "static_target_repos": {
@@ -375,5 +401,58 @@
       "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE",
       "policy": "all repo projects contribute path+HEAD; dirty projects outside the explicitly modeled target/host set are forbidden"
     }
+  },
+  "performance_contract": {
+    "target": "Snapdragon 425 / 2 GB low-end Android 16",
+    "background_blur_support": false,
+    "stale_surfaceflinger_props_removed": [
+      "debug.sf.disable_backpressure"
+    ],
+    "retained_low_end_props": {
+      "ro.config.avoid_gfx_accel": "true"
+    },
+    "inherited_android10_graphics_props_preserved": [
+      "debug.egl.hw=0",
+      "debug.sf.hw=0",
+      "debug.hwui.use_buffer_age=false"
+    ],
+    "memory_model": {
+      "kernel": "3.18 legacy Android lowmemorykiller",
+      "CONFIG_ANDROID_LOW_MEMORY_KILLER": "y",
+      "CONFIG_ZRAM": "y",
+      "CONFIG_SWAP": "y",
+      "CONFIG_MEMCG": "n",
+      "PSI": "unavailable",
+      "decision": "Do not force modern PSI/memcg lmkd without a deliberate kernel backport."
+    },
+    "rationale": "Keep the Android-10-era Qualcomm CPU/ZRAM/LMK tuning that was already known-good, while disabling Android 16 blur capability and removing only a SurfaceFlinger property no longer consumed by Android 16."
+  },
+  "audit_hardening_current": {
+    "local_boot_recovery": [
+      "required TB8504/msm8937 kernel config",
+      "forced module-signing config",
+      "expected TB8504 DTB present and embedded",
+      "hardware-critical boot cmdline tokens",
+      "kernel payload equals local Image.gz-dtb",
+      "module signer/vermagic coherence"
+    ],
+    "final_system": [
+      "partition size and sparse-header contract",
+      "simg2img materialization when sparse",
+      "ext filesystem magic",
+      "e2fsck -f -n must return clean",
+      "actual installed ELF DT_NEEDED graph and bitness",
+      "host checkvintf --check-compat",
+      "built low-end graphics properties"
+    ],
+    "final_ota": [
+      "ZIP CRC and safe paths",
+      "TB8504 pre-device aliases",
+      "post-build fingerprint and SDK",
+      "boot/recovery binding",
+      "block OTA transfer-list syntax",
+      "system.new.dat(.br/.xz) new/zero blocks bound to staged system.img"
+    ],
+    "build_metadata": "Source-only converge never trusts stale module-info.json. Every build goal runs AOSP refreshmod and re-audits runtime contracts before compiling images."
   }
 }
