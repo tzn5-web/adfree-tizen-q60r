@@ -304,8 +304,38 @@ def audit_build_props(out: Path) -> None:
         and "ro.build.version.release=16" not in combined
     ):
         fail("built properties do not prove Android 16")
+
+    def values(key: str) -> set[str]:
+        result=set()
+        prefix=key+"="
+        for _path,text in props:
+            for raw in text.splitlines():
+                s=raw.strip()
+                if s.startswith(prefix):
+                    result.add(s[len(prefix):].strip())
+        return result
+
+    performance_props={
+        "ro.surface_flinger.supports_background_blur":{"0"},
+        "ro.config.avoid_gfx_accel":{"true"},
+    }
+    for key,wanted in performance_props.items():
+        actual=values(key)
+        print(f"BUILT_PERFORMANCE_PROP={key}={','.join(sorted(actual))}")
+        if actual!=wanted:
+            fail(f"built performance property mismatch {key}: {actual} != {wanted}")
+
+    stale=values("debug.sf.disable_backpressure")
+    print(
+        "BUILT_STALE_DISABLE_BACKPRESSURE="
+        + ("ABSENT" if not stale else ",".join(sorted(stale)))
+    )
+    if stale:
+        fail(f"stale debug.sf.disable_backpressure built property remains: {stale}")
+
     print(f"BUILD_PROP_FILES={len(props)}")
     print("ANDROID16_BUILT_PROPERTIES=PASS")
+    print("BUILT_LOW_END_GRAPHICS_CONTRACT=PASS")
 
 def audit_vintf(out: Path) -> None:
     xmls=[]
