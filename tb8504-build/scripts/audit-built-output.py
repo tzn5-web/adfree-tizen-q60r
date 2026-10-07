@@ -305,8 +305,26 @@ def audit_modules(root: Path, out: Path) -> None:
     cert=out/"obj/KERNEL_OBJ/signing_key.x509"
     if not modinfo or not openssl or not cert.is_file():
         fail("installed module signing audit prerequisites missing")
+    kernel_obj=out/"obj/KERNEL_OBJ"
+    kernel_release=""
+    release_file=kernel_obj/"include/config/kernel.release"
+    if release_file.is_file():
+        kernel_release=release_file.read_text("utf-8",errors="replace").strip()
+    if not kernel_release:
+        uts=kernel_obj/"include/generated/utsrelease.h"
+        if uts.is_file():
+            m_rel=re.search(
+                r'#define\\s+UTS_RELEASE\\s+"([^"]+)"',
+                uts.read_text("utf-8",errors="replace"),
+            )
+            if m_rel:
+                kernel_release=m_rel.group(1)
+    if not kernel_release:
+        fail("cannot determine built kernel release for module vermagic audit")
+
     signers=set()
     sig_keys=set()
+    vermagics=set()
     for ko in kos:
         signer=subprocess.run(
             [modinfo,"-F","signer",str(ko)],text=True,capture_output=True
@@ -314,10 +332,19 @@ def audit_modules(root: Path, out: Path) -> None:
         key=subprocess.run(
             [modinfo,"-F","sig_key",str(ko)],text=True,capture_output=True
         ).stdout.strip()
-        if not signer or not key:
-            fail(f"installed unsigned/unreadable module: {ko}")
+        vermagic=subprocess.run(
+            [modinfo,"-F","vermagic",str(ko)],text=True,capture_output=True
+        ).stdout.strip()
+        if not signer or not key or not vermagic:
+            fail(f"installed unsigned/unreadable module metadata: {ko}")
+        if vermagic.split()[0] != kernel_release:
+            fail(
+                f"installed module vermagic mismatch {ko.name}: "
+                f"{vermagic!r} != {kernel_release!r}"
+            )
         signers.add(signer)
         sig_keys.add(re.sub(r"[^0-9a-fA-F]","",key).lower())
+        vermagics.add(vermagic)
     if len(signers)!=1 or len(sig_keys)!=1:
         fail(f"installed module signing identities diverge: {signers} {sig_keys}")
 
@@ -337,8 +364,11 @@ def audit_modules(root: Path, out: Path) -> None:
     key=next(iter(sig_keys))
     if key!=ski and not key.endswith(ski):
         fail(f"installed module sig_key != kernel cert SKI: {key} != {ski}")
+    print(f"BUILT_KERNEL_RELEASE={kernel_release}")
+    print(f"INSTALLED_MODULE_VERMAGIC_VARIANTS={len(vermagics)}")
     print(f"INSTALLED_MODULE_SIGNER={next(iter(signers))}")
     print(f"INSTALLED_MODULE_SIGNING_SKI={ski}")
+    print("INSTALLED_MODULE_VERMAGIC_COHERENCE=PASS")
     print("INSTALLED_MODULE_SIGNING_COHERENCE=PASS")
 
 def audit_system_image(out: Path) -> None:
