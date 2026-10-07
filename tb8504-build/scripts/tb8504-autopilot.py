@@ -735,6 +735,10 @@ class Autopilot:
             raise StopAutopilot("runtime init/VINTF contract audit failed")
 
         self.snapshot_sources("after-convergence")
+        self.current_source_fingerprint = self.compute_source_fingerprint()
+        self.status["source_fingerprint"] = self.current_source_fingerprint
+        self.state["source_fingerprint"] = self.current_source_fingerprint
+        self.save_state()
         self.say("SOURCE_CONVERGENCE=PASS")
 
     def android_shell(self, body: str, log_name: str | None = None) -> CommandResult:
