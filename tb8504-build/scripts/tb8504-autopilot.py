@@ -1197,6 +1197,8 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         uploaded=False
         release_tag=kv.get("DRAFT_RELEASE_TAG","")
         request_path=kv.get("STAGE8N_REQUEST_PATH","")
+        request_commit=kv.get("STAGE8N_REQUEST_COMMIT","")
+        request_parent=kv.get("STAGE8N_REQUEST_PARENT","")
         if self.upload_seed:
             if not release_tag or release_tag=="NONE":
                 raise StopAutopilot(
@@ -1208,6 +1210,19 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                 raise StopAutopilot(
                     "seed upload requested but STAGE8N request was not committed"
                 )
+            if not re.fullmatch(r"[0-9a-f]{40}", request_commit):
+                raise StopAutopilot(
+                    "seed upload requested but request commit SHA is missing/invalid"
+                )
+            if request_parent != self.tooling_ref:
+                raise StopAutopilot(
+                    f"STAGE8N request parent mismatch: "
+                    f"{request_parent!r} != {self.tooling_ref!r}"
+                )
+            if "STAGE8N_HANDOFF_PROVENANCE=PASS" not in r.text:
+                raise StopAutopilot(
+                    "seed handoff provenance marker missing"
+                )
             uploaded=True
 
         self.status["cloud_seed_v2"]={
@@ -1218,6 +1233,8 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             "uploaded":uploaded,
             "release_tag":release_tag or "NONE",
             "stage8n_request":request_path or "NONE",
+            "stage8n_request_commit":request_commit or "NONE",
+            "stage8n_request_parent":request_parent or "NONE",
         }
         self.say(f"CLOUD_SEED_V2={archive}")
         self.say(f"CLOUD_SEED_V2_SIZE={archive.stat().st_size}")
@@ -1226,6 +1243,8 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         if uploaded:
             self.say(f"CLOUD_SEED_V2_RELEASE_TAG={release_tag}")
             self.say(f"CLOUD_SEED_V2_STAGE8N_REQUEST={request_path}")
+            self.say(f"CLOUD_SEED_V2_STAGE8N_COMMIT={request_commit}")
+            self.say(f"CLOUD_SEED_V2_STAGE8N_PARENT={request_parent}")
             self.say("CLOUD_SEED_V2_HANDOFF=PASS")
         self.say("CLOUD_SEED_V2_EXPORT=PASS")
         return archive
