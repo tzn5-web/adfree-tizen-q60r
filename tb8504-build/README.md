@@ -5,6 +5,7 @@ This branch is isolated from the Tizen project. It moves only safe, reproducible
 ## Primary operating model
 
 The single supported local entry point is `scripts/tb8504-autopilot.py`.
+For the provenance-only handoff, use the same entry point with `--goal converge --upload-seed`; this performs no Android image build and no device access.
 The older `local-*.sh` runners are retained only as historical/support tooling;
 they are not an alternate build procedure.
 
@@ -77,8 +78,8 @@ The seed is never committed to this public branch.
 4. sanitizes remote URLs and skips sensitive untracked files;
 5. includes the existing Android 16 boot.img seed;
 6. generates SHA256SUMS;
-7. optionally uploads the archive to a GitHub **draft release**;
-8. writes a tiny public request file containing only the draft tag and seed ZIP SHA256.
+7. optionally uploads the archive to a GitHub **draft release** when `tb8504-autopilot.py --goal converge --upload-seed` is used;
+8. creates the tiny STAGE8N request as a Git commit whose direct parent is the exact pinned `TOOLING_REF`, then advances the branch only by fast-forward.
 
 The request commit triggers `.github/workflows/tb8504-boot.yml`.
 
