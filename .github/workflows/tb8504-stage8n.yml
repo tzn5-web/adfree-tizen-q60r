@@ -242,6 +242,23 @@ jobs:
           echo "PRODUCT_COMPAT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
 
+      - name: Prove residual cleanup idempotence
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/apply-residual-cleanup.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --vendor /tmp/tb8504-stage8n/reconstructed/vendor \
+            --patch-out /tmp/tb8504-stage8n/report/residual-idempotence.patch \
+            --report-out /tmp/tb8504-stage8n/report/residual-idempotence.txt \
+            2>&1 | tee /tmp/tb8504-stage8n/report/residual-idempotence.log
+          grep -Fx 'RESIDUAL_CLEANUP_STATE=ALREADY_APPLIED' /tmp/tb8504-stage8n/report/residual-idempotence.txt
+          grep -Fx 'IMS_SERVICES_RESTORED=0' /tmp/tb8504-stage8n/report/residual-idempotence.txt
+          grep -Fx 'DEAD_CONTROL_REFS_REMOVED=0' /tmp/tb8504-stage8n/report/residual-idempotence.txt
+          grep -Fx 'CHANGED_FILES=0' /tmp/tb8504-stage8n/report/residual-idempotence.txt
+          test ! -s /tmp/tb8504-stage8n/report/residual-idempotence.patch
+          echo "RESIDUAL_IDEMPOTENCE=PASS" >> /tmp/tb8504-stage8n/report/STATUS.txt
+
       - name: Validate transformed device shell syntax
         shell: bash
         run: |
