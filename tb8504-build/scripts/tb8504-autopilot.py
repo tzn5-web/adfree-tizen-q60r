@@ -2110,6 +2110,20 @@ def static_self_test() -> None:
                 f"required boot-image SELinux guard missing: {guard}"
             )
 
+    exporter_text = (
+        repo_root / "tb8504-build/scripts/export-cloud-seed.sh"
+    ).read_text("utf-8", errors="replace")
+    for guard in (
+        "STAGE8N_HANDOFF_PROVENANCE=PASS",
+        'parents[]=$TOOLING_REF',
+        'force=false',
+        'TOOLING_REF=$TOOLING_REF',
+    ):
+        if guard not in exporter_text:
+            raise RuntimeError(
+                f"required seed-handoff provenance guard missing: {guard}"
+            )
+
     final_package_text = (
         repo_root / "tb8504-build/scripts/audit-final-package.py"
     ).read_text("utf-8", errors="replace")
