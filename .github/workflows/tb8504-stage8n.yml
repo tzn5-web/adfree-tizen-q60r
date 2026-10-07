@@ -41,7 +41,32 @@ jobs:
             exit 2
           fi
           REQUEST="${REQUESTS[0]}"
-          if grep -Ev '^(SEED_RELEASE_TAG|SEED_ZIP_SHA256|TOOLING_REF)=[A-Za-z0-9._:-]+
+          if grep -Ev '^(SEED_RELEASE_TAG|SEED_ZIP_SHA256|TOOLING_REF)=[A-Za-z0-9._:-]+$' "$REQUEST" | grep -q .; then
+            echo "Invalid STAGE8N request syntax" >&2
+            cat "$REQUEST" >&2
+            exit 3
+          fi
+          source "$REQUEST"
+          if [ -z "${SEED_RELEASE_TAG:-}" ]; then
+            echo "Missing seed release tag" >&2
+            exit 4
+          fi
+          if ! [[ "${SEED_ZIP_SHA256:-}" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid seed SHA256" >&2
+            exit 4
+          fi
+          if ! [[ "${TOOLING_REF:-}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid tooling ref" >&2
+            exit 4
+          fi
+          REQUEST_PARENT="$(git rev-parse "$GITHUB_SHA^")"
+          if [ "$REQUEST_PARENT" != "$TOOLING_REF" ]; then
+            echo "STAGE8N request parent/tooling mismatch: $REQUEST_PARENT != $TOOLING_REF" >&2
+            exit 4
+          fi
+          echo "SEED_RELEASE_TAG=$SEED_RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "EXPECTED_SEED_ZIP_SHA256=$SEED_ZIP_SHA256" >> "$GITHUB_ENV"
+          echo "EXPECTED_TOOLING_REF=$TOOLING_REF" >> "$GITHUB_ENV"
       - name: Static safety audit
         shell: bash
         run: |
