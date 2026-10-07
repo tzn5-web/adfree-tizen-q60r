@@ -582,6 +582,7 @@ class Autopilot:
         if not isinstance(static, dict) or not static:
             raise StopAutopilot("source integrity contract set missing/empty")
 
+        static_report: dict[str, object] = {}
         for rel, spec in sorted(static.items()):
             repo = self.root / rel
             if not repo.is_dir():
@@ -611,7 +612,20 @@ class Autopilot:
                     f"unexpected untracked files in fixed source repo {rel}: "
                     f"{untracked[:30]}"
                 )
+            static_report[rel] = {
+                "head": head,
+                "patch_sha256": patch_sha,
+                "status": self.git_status(repo).splitlines(),
+                "untracked": [],
+            }
             self.say(f"SOURCE_CONTRACT[{rel}]=PASS")
+
+        (self.report / "static-source-state.json").write_text(
+            json.dumps(static_report, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        self.say(f"STATIC_SOURCE_PROVENANCE_COUNT={len(static_report)}")
+        self.say("STATIC_SOURCE_PROVENANCE_CAPTURE=PASS")
 
         host = contracts.get("host_only_repo", {})
         if isinstance(host, dict) and host:
