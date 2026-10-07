@@ -14,6 +14,7 @@ import re
 import shutil
 import struct
 import subprocess
+import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -492,6 +493,142 @@ def audit_system_image(out: Path) -> None:
     print(f"SYSTEM_IMAGE_SHA256={sha(p)}")
     print("SYSTEM_IMAGE_SIZE_CONTRACT=PASS")
 
+
+def read_first_api_level(out: Path) -> str:
+    for root in installed_roots(out):
+        for p in root.rglob("build.prop"):
+            try:
+                for raw in p.read_text("utf-8",errors="replace").splitlines():
+                    if raw.startswith("ro.product.first_api_level="):
+                        value=raw.split("=",1)[1].strip()
+                        if value.isdigit():
+                            return value
+            except OSError:
+                pass
+    return ""
+
+def audit_checkvintf(root: Path, out: Path) -> None:
+    tool=root/"out/host/linux-x86/bin/checkvintf"
+    if not tool.is_file():
+        fail(f"checkvintf host tool missing after build: {tool}")
+
+    vendor_root=out/"vendor"
+    if not vendor_root.is_dir() and (out/"system/vendor").is_dir():
+        vendor_root=out/"system/vendor"
+
+    mappings=[
+        ("/system",out/"system"),
+        ("/vendor",vendor_root),
+        ("/odm",out/"odm"),
+        ("/product",out/"product"),
+        ("/system_ext",out/"system_ext"),
+        ("/apex",out/"apex"),
+    ]
+    args=[str(tool),"--check-compat"]
+    mapped=[]
+    for logical,physical in mappings:
+        if physical.is_dir():
+            args += ["--dirmap",f"{logical}:{physical}"]
+            mapped.append(f"{logical}:{physical}")
+
+    if not any(x.startswith("/system:") for x in mapped):
+        fail("checkvintf cannot run: staged /system directory missing")
+    if not any(x.startswith("/vendor:") for x in mapped):
+        fail("checkvintf cannot run: staged /vendor directory missing")
+
+    first_api=read_first_api_level(out)
+    if first_api:
+        args += ["--property",f"ro.product.first_api_level={first_api}"]
+
+    proc=subprocess.run(args,text=True,capture_output=True,check=False)
+    combined=(proc.stdout or "")+"\n"+(proc.stderr or "")
+    print("CHECKVINTF_DIRMAPS="+",".join(mapped))
+    print(f"CHECKVINTF_FIRST_API_LEVEL={first_api}")
+    print(f"CHECKVINTF_RC={proc.returncode}")
+    if proc.returncode!=0 or "COMPATIBLE" not in combined:
+        fail(
+            "checkvintf compatibility failed: "
+            + "\n".join(combined.splitlines()[-80:])
+        )
+    print("CHECKVINTF_COMPATIBILITY=PASS")
+
+def audit_rom_zip(out: Path, rom: Path) -> None:
+    if not rom.is_file() or rom.stat().st_size < 1024*1024:
+        fail(f"final ROM ZIP missing/implausibly small: {rom}")
+    try:
+        with zipfile.ZipFile(rom,"r") as z:
+            bad=z.testzip()
+            if bad:
+                fail(f"final ROM ZIP CRC failure: {bad}")
+            infos=z.infolist()
+            names=[i.filename for i in infos]
+            if not names:
+                fail("final ROM ZIP is empty")
+            unsafe=[
+                n for n in names
+                if n.startswith("/") or ".." in Path(n).parts
+            ]
+            if unsafe:
+                fail(f"unsafe paths in final ROM ZIP: {unsafe[:20]}")
+
+            metadata=""
+            if "META-INF/com/android/metadata" in names:
+                metadata=z.read("META-INF/com/android/metadata").decode(
+                    "utf-8","replace"
+                )
+                pre_device=""
+                for raw in metadata.splitlines():
+                    if raw.startswith("pre-device="):
+                        pre_device=raw.split("=",1)[1].strip()
+                        break
+                if pre_device and "TB8504" not in {
+                    x.strip() for x in pre_device.split("|")
+                }:
+                    fail(f"ROM metadata pre-device does not include TB8504: {pre_device}")
+
+            has_payload="payload.bin" in names
+            has_block_system=(
+                any(
+                    n in names for n in (
+                        "system.new.dat","system.new.dat.br","system.new.dat.xz"
+                    )
+                )
+                and "system.transfer.list" in names
+            )
+            has_system_img=any(n in names for n in ("system.img","IMAGES/system.img"))
+            has_updater=(
+                "META-INF/com/google/android/update-binary" in names
+                or "META-INF/com/google/android/updater-script" in names
+            )
+            if not (has_payload or has_block_system or has_system_img or has_updater):
+                fail("ROM ZIP contains no recognized Android OTA/install payload")
+
+            boot_names=[n for n in ("boot.img","IMAGES/boot.img") if n in names]
+            if boot_names:
+                built_boot=out/"boot.img"
+                if not built_boot.is_file():
+                    fail("ROM contains boot.img but staged boot.img is missing")
+                built_sha=sha(built_boot)
+                for name in boot_names:
+                    zipped_sha=hashlib.sha256(z.read(name)).hexdigest()
+                    if zipped_sha!=built_sha:
+                        fail(
+                            f"ROM {name} does not match staged boot.img: "
+                            f"{zipped_sha} != {built_sha}"
+                        )
+
+            print(f"FINAL_ROM_ZIP_ENTRIES={len(infos)}")
+            print(f"FINAL_ROM_HAS_METADATA={'YES' if metadata else 'NO'}")
+            print(f"FINAL_ROM_HAS_PAYLOAD={'YES' if has_payload else 'NO'}")
+            print(f"FINAL_ROM_HAS_BLOCK_SYSTEM={'YES' if has_block_system else 'NO'}")
+            print(f"FINAL_ROM_HAS_SYSTEM_IMG={'YES' if has_system_img else 'NO'}")
+            print(f"FINAL_ROM_HAS_UPDATER={'YES' if has_updater else 'NO'}")
+            print(f"FINAL_ROM_BOOT_ENTRIES={len(boot_names)}")
+    except zipfile.BadZipFile as exc:
+        fail(f"final ROM ZIP parse failure: {exc}")
+    print(f"FINAL_ROM_ZIP_SHA256={sha(rom)}")
+    print("FINAL_ROM_ZIP_AUDIT=PASS")
+
 def audit_policy(out: Path) -> None:
     candidates=[]
     names={
@@ -512,6 +649,7 @@ def main() -> int:
     ap=argparse.ArgumentParser()
     ap.add_argument("--root",required=True,type=Path)
     ap.add_argument("--report-dir",required=True,type=Path)
+    ap.add_argument("--rom",type=Path)
     args=ap.parse_args()
     root=args.root.resolve()
     out=root/"out/target/product/TB8504"
@@ -526,9 +664,12 @@ def main() -> int:
     audit_runtime(out)
     audit_removed_outputs(out)
     audit_vintf(out)
+    audit_checkvintf(root,out)
     audit_modules(root,out)
     audit_system_image(out)
     audit_policy(out)
+    if args.rom is not None:
+        audit_rom_zip(out,args.rom.resolve())
 
     print("ACTUAL_BUILT_OUTPUT_AUDIT=PASS")
     return 0
