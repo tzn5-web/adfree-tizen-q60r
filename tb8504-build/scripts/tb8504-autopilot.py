@@ -1828,8 +1828,10 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.converge_sources()
         self.release_gate()
 
-        if self.goal != "converge":
-            self.refresh_module_metadata()
+        # refresh_module_metadata() owns the converge-side cloud-seed v2
+        # export and the build-goal module-info refresh. Call it for every goal
+        # so the documented single-entry pipeline cannot skip either contract.
+        self.refresh_module_metadata()
 
         if self.goal == "converge":
             return
