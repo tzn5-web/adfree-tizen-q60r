@@ -408,6 +408,17 @@ def main() -> int:
         if absent:
             fail("EXPORT metadata mismatch: " + ",".join(absent))
 
+        tooling_refs = [
+            line.split("=", 1)[1].strip()
+            for line in export.splitlines()
+            if line.startswith("TOOLING_REF=")
+        ]
+        if len(tooling_refs) != 1 or not re.fullmatch(
+            r"[0-9a-f]{40}", tooling_refs[0]
+        ):
+            fail(f"invalid/missing TOOLING_REF metadata: {tooling_refs}")
+        print(f"SEED_TOOLING_REF={tooling_refs[0]}")
+
         seeds_meta = z.read("meta/SEEDS.txt").decode("utf-8", "replace")
         if "BOOT_SEED=present" not in seeds_meta.splitlines():
             fail("SEEDS metadata does not mark boot seed present")
