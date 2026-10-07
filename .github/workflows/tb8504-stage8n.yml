@@ -60,12 +60,15 @@ jobs:
           set -o pipefail
           python3 -m py_compile \
             tb8504-build/scripts/audit-cloud-seed.py \
-            tb8504-build/scripts/audit-stage8n.py
+            tb8504-build/scripts/audit-stage8n.py \
+            tb8504-build/scripts/audit-runtime-contracts.py
           ! grep -RniE '(^|[[:space:]])(adb|fastboot)[[:space:]]' \
             tb8504-build/scripts/audit-stage8n.py \
+            tb8504-build/scripts/audit-runtime-contracts.py \
             tb8504-build/config/stage8n.env
           ! grep -RniE '/dev/(block|snd)|dd[[:space:]].*of=/dev/' \
-            tb8504-build/scripts/audit-stage8n.py
+            tb8504-build/scripts/audit-stage8n.py \
+            tb8504-build/scripts/audit-runtime-contracts.py
 
       - name: Download private audited seed
         env:
@@ -160,6 +163,19 @@ jobs:
           echo "STAGE8N_AUDIT_RC=$RC" | tee /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
 
+      - name: Audit runtime init and VINTF contracts
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/audit-runtime-contracts.py \
+            --vendor /tmp/tb8504-stage8n/reconstructed/vendor \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --report-dir /tmp/tb8504-stage8n/report \
+            2>&1 | tee /tmp/tb8504-stage8n/report/runtime-contracts.log
+          RC=${PIPESTATUS[0]}
+          echo "RUNTIME_CONTRACT_AUDIT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
+          exit "$RC"
+
       - name: Publish STAGE8N summary
         if: always()
         shell: bash
@@ -168,6 +184,12 @@ jobs:
           echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
           [ ! -f /tmp/tb8504-stage8n/report/FULL.log ] || tail -n 160 /tmp/tb8504-stage8n/report/FULL.log >> "$GITHUB_STEP_SUMMARY"
           echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /tmp/tb8504-stage8n/report/runtime-contracts.log ]; then
+            echo '## Runtime contract audit' >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 160 /tmp/tb8504-stage8n/report/runtime-contracts.log >> "$GITHUB_STEP_SUMMARY"
+            echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload STAGE8N audit report
         if: always()
