@@ -969,10 +969,7 @@ class Autopilot:
             if marker not in r.text:
                 raise StopAutopilot(f"missing STAGE8N success marker: {marker}")
 
-        module_info = self.product_out / "module-info.json"
-        if not module_info.is_file():
-            raise StopAutopilot(f"module-info.json missing: {module_info}")
-        runtime_dir = self.report / "runtime"
+        runtime_dir = self.report / "runtime-source-only"
         runtime_dir.mkdir(exist_ok=True)
         r = self.helper(
             "audit-runtime-contracts.py",
@@ -980,12 +977,13 @@ class Autopilot:
                 "--vendor", str(self.vendor),
                 "--device", str(self.device),
                 "--report-dir", str(runtime_dir),
-                "--module-info", str(module_info),
             ],
-            "audit-runtime-contracts.log",
+            "audit-runtime-contracts-source-only.log",
         )
         if r.rc != 0 or "RUNTIME_CONTRACT_FAILURES=0" not in r.text:
-            raise StopAutopilot("runtime init/VINTF contract audit failed")
+            raise StopAutopilot("source-only runtime init/VINTF contract audit failed")
+        self.say("RUNTIME_MODULE_INFO_MODE=SOURCE_ONLY")
+        self.say("RUNTIME_SOURCE_ONLY_AUDIT=PASS")
 
         self.snapshot_sources("after-convergence")
         self.validate_dynamic_primary_contracts()
@@ -1044,6 +1042,70 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         release_file = self.report / "release.txt"
         release_file.write_text("\n".join(f"{k}={v}" for k, v in info.items()) + "\n", encoding="utf-8")
         self.say("ANDROID16_RELEASE_IDENTITY=PASS")
+
+    def refresh_module_metadata(self) -> None:
+        """Regenerate module-info.json after source convergence before builds."""
+        if self.goal == "converge":
+            return
+        self.say("")
+        self.say("=== REFRESH ANDROID MODULE METADATA ===")
+        module_info = self.product_out / "module-info.json"
+        before_sha = self.sha_file(module_info) if module_info.is_file() else ""
+        before_mtime = module_info.stat().st_mtime_ns if module_info.is_file() else 0
+
+        r = self.android_shell("refreshmod", "refresh-module-info.log")
+        if r.rc != 0:
+            raise StopAutopilot(
+                f"refreshmod failed before build goal rc={r.rc}"
+            )
+        if not module_info.is_file() or module_info.stat().st_size <= 0:
+            raise StopAutopilot(
+                f"refreshmod did not produce module-info.json: {module_info}"
+            )
+        try:
+            parsed=json.loads(module_info.read_text("utf-8",errors="replace"))
+        except Exception as exc:
+            raise StopAutopilot(f"refreshed module-info.json is invalid: {exc}")
+        if not isinstance(parsed,dict) or not parsed:
+            raise StopAutopilot("refreshed module-info.json is empty/non-object")
+
+        after_sha=self.sha_file(module_info)
+        after_mtime=module_info.stat().st_mtime_ns
+        self.say(f"MODULE_INFO_BEFORE_SHA256={before_sha}")
+        self.say(f"MODULE_INFO_AFTER_SHA256={after_sha}")
+        self.say(f"MODULE_INFO_ENTRIES={len(parsed)}")
+        self.say(
+            "MODULE_INFO_REFRESHED="
+            + ("YES" if after_sha!=before_sha or after_mtime!=before_mtime else "UNCHANGED_VALID")
+        )
+
+        runtime_dir=self.report/"runtime-refreshed-module-info"
+        runtime_dir.mkdir(exist_ok=True)
+        rr=self.helper(
+            "audit-runtime-contracts.py",
+            [
+                "--vendor",str(self.vendor),
+                "--device",str(self.device),
+                "--report-dir",str(runtime_dir),
+                "--module-info",str(module_info),
+            ],
+            "audit-runtime-contracts-refreshed-module-info.log",
+        )
+        if rr.rc!=0 or "RUNTIME_CONTRACT_FAILURES=0" not in rr.text:
+            raise StopAutopilot(
+                "runtime contract audit failed with refreshed module-info.json"
+            )
+
+        self.state["module_info"]={
+            "sha256":after_sha,
+            "source_fingerprint":self.current_source_fingerprint,
+            "entries":len(parsed),
+            "audited":dt.datetime.now().isoformat(),
+            "tooling_ref":self.tooling_ref,
+        }
+        self.save_state()
+        self.say("MODULE_INFO_SOURCE_BINDING=PASS")
+        self.say("RUNTIME_REFRESHED_MODULE_INFO_AUDIT=PASS")
 
     def detect_vendor_partition(self) -> bool:
         size = self.release_info.get("BOARD_VENDORIMAGE_PARTITION_SIZE", "").strip()
@@ -1677,6 +1739,9 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.preflight()
         self.converge_sources()
         self.release_gate()
+
+        if self.goal != "converge":
+            self.refresh_module_metadata()
 
         if self.goal == "converge":
             return
