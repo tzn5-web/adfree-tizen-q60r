@@ -145,6 +145,7 @@ def main() -> int:
     dtb = root / EXPECTED_DTB
     config = root / "kernel.config"
     signing_cert = root / "module-signing.x509"
+    kernel_release_file = root / "kernel.release"
     module_dir = root / "modules"
     modules = sorted(module_dir.glob("*.ko"))
     errors: list[str] = []
@@ -184,6 +185,18 @@ def main() -> int:
                 print(f"AUDIT_CONFIG_OK={required}")
 
     expected_keyid = ""
+    kernel_release = ""
+    if not kernel_release_file.is_file() or kernel_release_file.stat().st_size == 0:
+        errors.append("kernel.release missing/empty")
+    else:
+        kernel_release = kernel_release_file.read_text(
+            "utf-8", errors="replace"
+        ).strip()
+        if not kernel_release:
+            errors.append("kernel.release empty")
+        else:
+            print(f"AUDIT_KERNEL_RELEASE={kernel_release}")
+
     if not signing_cert.is_file() or signing_cert.stat().st_size == 0:
         errors.append("module-signing.x509 missing/empty")
     else:
@@ -223,6 +236,21 @@ def main() -> int:
         unsigned = sig["unsigned"]
         signer = sig["signer"].decode("utf-8", "replace")
         keyid = sig["keyid"].hex()
+        vermagic_matches = re.findall(rb"(?:^|\\x00)vermagic=([^\\x00]+)", unsigned)
+        if len(vermagic_matches) != 1:
+            errors.append(
+                f"{module.name}: expected one vermagic entry, "
+                f"found {len(vermagic_matches)}"
+            )
+        else:
+            vermagic = vermagic_matches[0].decode("utf-8", "replace")
+            print(f"MODULE_VERMAGIC={module.name}:{vermagic}")
+            release_token = vermagic.split()[0] if vermagic.split() else ""
+            if kernel_release and release_token != kernel_release:
+                errors.append(
+                    f"{module.name}: vermagic release mismatch "
+                    f"{release_token!r} != {kernel_release!r}"
+                )
         print(f"MODULE_SIGNER={module.name}:{signer}")
         print(f"MODULE_SIGNER_KEYID={module.name}:{keyid}")
         print(f"MODULE_SIGNATURE_DIGEST_ID={module.name}:{sig['digest_id']}")
