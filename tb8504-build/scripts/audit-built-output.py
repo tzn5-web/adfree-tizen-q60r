@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""Audit actual TB8504 built output after the final Android 16 build.
+
+This complements source-side STAGE8N. It inspects what was actually emitted
+under out/target/product/TB8504 and fails closed on the runtime contracts that
+were historically problematic during the TB8504 bring-up.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import re
+import shutil
+import struct
+import subprocess
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+EXPECTED_IMS = {
+    "vendor.imsqmidaemon": "imsqmidaemon",
+    "vendor.imsdatadaemon": "imsdatadaemon",
+    "vendor.ims_rtp_daemon": "ims_rtp_daemon",
+    "vendor.imsrcsservice": "imsrcsd",
+}
+ABSENT_SERVICES = {
+    "audiod","chre","cnss-daemon","crashdata-sh","diag_mdlog_start",
+    "diag_mdlog_stop","drmdiag","dts_configurator","dtseagleservice",
+    "esepmdaemon","fstman","fstman_wlan0","gamed","hbtp","hvdcp",
+    "ims_regmanager","iop","mdtpd","mlid","perfd","poweroffhandler","ppd",
+    "ptt_ffbm","ptt_socket_app","qcamerasvr","qcomsysd","qfp-daemon",
+    "qlogd","qrngd","qrngp","qseeproxydaemon","qvop-daemon",
+    "seemp_healthd","ssgqmigd","ssgtzd","vendor.LKCore-dbg",
+    "vendor.LKCore-rel","vendor.audio-hal-2-0","vendor.bt-dun",
+    "vendor.bt_logger","vendor.btsnoop","vendor.dataadpl","vendor.hbtp",
+    "vendor.hvdcp_opti","vendor.ipacm-diag","vendor.move_time_data",
+    "vendor.port-bridge","vendor.qdmastatsd","vendor.qmuxd","vendor.qrtr-ns",
+    "vendor.ril-daemon2","vendor.ril-daemon3","vendor.sensors",
+    "vendor.ss_ramdump","vendor.ssr_diag","vendor.ssr_setup",
+    "vendor.start_hci_filter","vendor.tlocd","vendor.vppservice",
+    "vendor.wifilearner","vm_bms","wifi-crda","wifi-sdio-on","wifi_ftmd",
+    "wigighalsvc","wigignpt",
+}
+EXPECTED_MODULES = {
+    "ansi_cprng.ko","backlight.ko","br_netfilter.ko","evbug.ko",
+    "generic_bl.ko","lcd.ko","mmc_block_test.ko","mmc_test.ko",
+    "rdbg.ko","test-iosched.ko","ufs_test.ko","wil6210.ko",
+}
+PROHIBITED_OUTPUT_BASENAMES = {
+    "WfdService.apk",
+    "WfdCommon.jar",
+    "wfdservice",
+    "wifidisplayhalservice",
+    "fstman",
+}
+CONTROL_RE = re.compile(r"^\s*(?:start|stop|restart|enable|disable)\s+([^\s#;]+)")
+CTL_RE = re.compile(r"^\s*setprop\s+ctl\.(?:start|stop|restart)\s+([^\s#;]+)")
+SERVICE_RE = re.compile(r"^service\s+(\S+)\s+([^\s\\]+)")
+
+def fail(msg: str) -> None:
+    print(f"BUILT_OUTPUT_AUDIT_FAIL={msg}")
+    raise SystemExit(2)
+
+def sha(path: Path) -> str:
+    h=hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda:f.read(1024*1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def is_elf(path: Path) -> bool:
+    try:
+        with path.open("rb") as f:
+            return f.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+def elf_class(path: Path) -> int:
+    with path.open("rb") as f:
+        hdr=f.read(5)
+    if len(hdr) < 5 or hdr[:4] != b"\x7fELF":
+        return 0
+    return hdr[4]
+
+def installed_roots(out: Path) -> list[Path]:
+    roots=[]
+    for rel in ("root","system","vendor","product","system_ext","odm"):
+        p=out/rel
+        if p.is_dir():
+            roots.append(p)
+    # Legacy integrated vendor.
+    if (out/"system/vendor").is_dir():
+        roots.append(out/"system/vendor")
+    return list(dict.fromkeys(roots))
+
+def find_installed(out: Path, basename: str) -> list[Path]:
+    hits=[]
+    for root in installed_roots(out):
+        for p in root.rglob(basename):
+            if p.is_file() or p.is_symlink():
+                hits.append(p)
+    return list(dict.fromkeys(hits))
+
+def parse_init(out: Path) -> tuple[dict[str, tuple[str, Path, int]], list[str]]:
+    services={}
+    stale=[]
+    for root in installed_roots(out):
+        for p in root.rglob("*.rc"):
+            try:
+                lines=p.read_text("utf-8",errors="replace").splitlines()
+            except OSError:
+                continue
+            for no,line in enumerate(lines,1):
+                m=SERVICE_RE.match(line)
+                if m:
+                    services.setdefault(m.group(1),(m.group(2),p,no))
+                c=CONTROL_RE.match(line) or CTL_RE.match(line)
+                if c and c.group(1) in ABSENT_SERVICES:
+                    stale.append(f"{p}:{no}:{c.group(1)}")
+    return services,stale
+
+def parse_vendor_copy_entries(vmk: Path) -> list[tuple[str,str]]:
+    entries=[]
+    for raw in vmk.read_text("utf-8",errors="replace").splitlines():
+        s=raw.strip().rstrip("\\").strip()
+        if ":" not in s:
+            continue
+        src,dst=s.split(":",1)
+        if not src.startswith("vendor/lenovo/TB8504/proprietary/"):
+            continue
+        if "$(TARGET_COPY_OUT_VENDOR)/" not in dst:
+            continue
+        entries.append((src,dst.split("$(TARGET_COPY_OUT_VENDOR)/",1)[1]))
+    return entries
+
+def choose_vendor_root(out: Path) -> Path:
+    if (out/"vendor").is_dir():
+        return out/"vendor"
+    if (out/"system/vendor").is_dir():
+        return out/"system/vendor"
+    fail("no installed vendor root found in built output")
+
+def audit_vendor_copy(root: Path, out: Path) -> None:
+    vmk=root/"vendor/lenovo/TB8504/TB8504-vendor.mk"
+    if not vmk.is_file():
+        fail("TB8504-vendor.mk missing")
+    vendor_root=choose_vendor_root(out)
+    entries=parse_vendor_copy_entries(vmk)
+    if len(entries) < 100:
+        fail(f"unexpectedly few vendor copy entries: {len(entries)}")
+    missing=[]
+    elf_checked=0
+    elf_mismatch=[]
+    for src_rel,dst_rel in entries:
+        src=root/src_rel
+        dst=vendor_root/dst_rel
+        if not src.is_file():
+            fail(f"vendor source copy input missing: {src_rel}")
+        if not dst.exists():
+            missing.append(dst_rel)
+            continue
+        if is_elf(src):
+            elf_checked += 1
+            if not dst.is_file() or not is_elf(dst):
+                elf_mismatch.append(f"{dst_rel}:not-ELF")
+            elif elf_class(src) != elf_class(dst):
+                elf_mismatch.append(
+                    f"{dst_rel}:class{elf_class(src)}->{elf_class(dst)}"
+                )
+    print(f"VENDOR_COPY_ENTRIES={len(entries)}")
+    print(f"VENDOR_COPY_MISSING={len(missing)}")
+    print(f"VENDOR_COPY_ELF_CHECKED={elf_checked}")
+    print(f"VENDOR_COPY_ELF_CLASS_MISMATCH={len(elf_mismatch)}")
+    if missing:
+        fail(f"installed vendor copy destinations missing: {missing[:30]}")
+    if elf_mismatch:
+        fail(f"installed vendor ELF class mismatch: {elf_mismatch[:30]}")
+    print("VENDOR_COPY_OUTPUT_AUDIT=PASS")
+
+def audit_build_props(out: Path) -> None:
+    props=[]
+    for root in installed_roots(out):
+        for p in root.rglob("build.prop"):
+            try:
+                props.append((p,p.read_text("utf-8",errors="replace")))
+            except OSError:
+                pass
+    if not props:
+        fail("no built build.prop files found")
+    combined="\n".join(t for _,t in props)
+    if "ro.build.version.sdk=36" not in combined:
+        fail("built properties do not prove SDK 36")
+    if (
+        "ro.build.version.release_or_codename=16" not in combined
+        and "ro.build.version.release=16" not in combined
+    ):
+        fail("built properties do not prove Android 16")
+    print(f"BUILD_PROP_FILES={len(props)}")
+    print("ANDROID16_BUILT_PROPERTIES=PASS")
+
+def audit_vintf(out: Path) -> None:
+    xmls=[]
+    stale=[]
+    ims=False
+    parse_errors=[]
+    for root in installed_roots(out):
+        for p in root.rglob("*.xml"):
+            if "vintf" not in str(p).lower():
+                continue
+            try:
+                text=p.read_text("utf-8",errors="replace")
+            except OSError:
+                continue
+            xmls.append(p)
+            if "com.qualcomm.qti.wifidisplayhal" in text:
+                stale.append(str(p))
+            if "vendor.qti.imsrtpservice" in text:
+                ims=True
+            try:
+                ET.fromstring(text)
+            except ET.ParseError as exc:
+                parse_errors.append(f"{p}:{exc}")
+    print(f"BUILT_VINTF_XML_FILES={len(xmls)}")
+    print(f"BUILT_VINTF_PARSE_ERRORS={len(parse_errors)}")
+    print(f"BUILT_STALE_WFD_VINTF={len(stale)}")
+    if parse_errors:
+        fail(f"built VINTF XML parse errors: {parse_errors[:20]}")
+    if stale:
+        fail(f"stale WFD HAL present in built VINTF: {stale[:20]}")
+    if not ims:
+        fail("built VINTF does not contain required vendor.qti.imsrtpservice")
+    print("BUILT_VINTF_CONTRACTS=PASS")
+
+def audit_runtime(out: Path) -> None:
+    services,stale=parse_init(out)
+    missing=[]
+    wrong=[]
+    for name,exe in EXPECTED_IMS.items():
+        row=services.get(name)
+        if not row:
+            missing.append(name)
+            continue
+        if Path(row[0]).name != exe:
+            wrong.append(f"{name}:{row[0]} != {exe}")
+        if not find_installed(out,exe):
+            missing.append(f"{name}:executable:{exe}")
+    print(f"BUILT_INIT_SERVICES={len(services)}")
+    print(f"BUILT_STALE_CONTROL_REFS={len(stale)}")
+    print(f"BUILT_IMS_MISSING={len(missing)}")
+    print(f"BUILT_IMS_WRONG_EXEC={len(wrong)}")
+    if stale:
+        fail(f"stale removed-service control refs in built output: {stale[:30]}")
+    if missing or wrong:
+        fail(f"IMS built runtime contract failed missing={missing} wrong={wrong}")
+    print("BUILT_RUNTIME_CONTRACTS=PASS")
+
+def audit_removed_outputs(out: Path) -> None:
+    hits=[]
+    for name in PROHIBITED_OUTPUT_BASENAMES:
+        for p in find_installed(out,name):
+            hits.append(str(p))
+    print(f"PROHIBITED_REMOVED_OUTPUTS={len(hits)}")
+    if hits:
+        fail(f"removed WFD/fstman output still installed: {hits[:30]}")
+    print("REMOVED_OUTPUT_CONTRACTS=PASS")
+
+def audit_modules(root: Path, out: Path) -> None:
+    module_roots=[]
+    for p in (
+        out/"vendor/lib/modules",
+        out/"system/vendor/lib/modules",
+        out/"system/lib/modules",
+    ):
+        if p.is_dir():
+            module_roots.append(p)
+    if not module_roots:
+        fail("no installed kernel module directory found")
+    kos=[]
+    for mr in module_roots:
+        kos.extend(p for p in mr.rglob("*.ko") if p.is_file())
+    names={p.name for p in kos}
+    missing=sorted(EXPECTED_MODULES-names)
+    extra=sorted(names-EXPECTED_MODULES)
+    print(f"INSTALLED_MODULE_DIRS={len(module_roots)}")
+    print(f"INSTALLED_MODULE_FILES={len(kos)}")
+    print(f"INSTALLED_MODULE_UNIQUE={len(names)}")
+    if missing or extra:
+        fail(f"installed module set mismatch missing={missing} extra={extra}")
+    if not any((mr/"modules.dep").is_file() for mr in module_roots):
+        fail("installed modules.dep missing")
+
+    modinfo=shutil.which("modinfo")
+    openssl=shutil.which("openssl")
+    cert=out/"obj/KERNEL_OBJ/signing_key.x509"
+    if not modinfo or not openssl or not cert.is_file():
+        fail("installed module signing audit prerequisites missing")
+    signers=set()
+    sig_keys=set()
+    for ko in kos:
+        signer=subprocess.run(
+            [modinfo,"-F","signer",str(ko)],text=True,capture_output=True
+        ).stdout.strip()
+        key=subprocess.run(
+            [modinfo,"-F","sig_key",str(ko)],text=True,capture_output=True
+        ).stdout.strip()
+        if not signer or not key:
+            fail(f"installed unsigned/unreadable module: {ko}")
+        signers.add(signer)
+        sig_keys.add(re.sub(r"[^0-9a-fA-F]","",key).lower())
+    if len(signers)!=1 or len(sig_keys)!=1:
+        fail(f"installed module signing identities diverge: {signers} {sig_keys}")
+
+    cert_text=""
+    for cmd in (
+        [openssl,"x509","-in",str(cert),"-noout","-text"],
+        [openssl,"x509","-inform","DER","-in",str(cert),"-noout","-text"],
+    ):
+        p=subprocess.run(cmd,text=True,capture_output=True)
+        if p.returncode==0:
+            cert_text=p.stdout
+            break
+    m=re.search(r"Subject Key Identifier:\s*\n\s*([0-9A-Fa-f:]+)",cert_text)
+    if not m:
+        fail("kernel signing cert SKI missing")
+    ski=re.sub(r"[^0-9a-fA-F]","",m.group(1)).lower()
+    key=next(iter(sig_keys))
+    if key!=ski and not key.endswith(ski):
+        fail(f"installed module sig_key != kernel cert SKI: {key} != {ski}")
+    print(f"INSTALLED_MODULE_SIGNER={next(iter(signers))}")
+    print(f"INSTALLED_MODULE_SIGNING_SKI={ski}")
+    print("INSTALLED_MODULE_SIGNING_COHERENCE=PASS")
+
+def audit_system_image(out: Path) -> None:
+    p=out/"system.img"
+    if not p.is_file() or p.stat().st_size<=0:
+        fail("system.img missing/empty")
+    data=p.read_bytes()
+    expanded=len(data)
+    sparse=False
+    if len(data)>=28 and struct.unpack_from("<I",data,0)[0]==0xED26FF3A:
+        sparse=True
+        vals=struct.unpack_from("<I4H4I",data,0)
+        blk_sz=vals[5]; total_blks=vals[6]
+        if vals[1]!=1 or blk_sz<=0:
+            fail("invalid sparse system.img header")
+        expanded=blk_sz*total_blks
+    limit=4080218112
+    if expanded>limit:
+        fail(f"system.img expanded size exceeds partition: {expanded}>{limit}")
+    print(f"SYSTEM_IMAGE_SPARSE={'YES' if sparse else 'NO'}")
+    print(f"SYSTEM_IMAGE_STORED_SIZE={len(data)}")
+    print(f"SYSTEM_IMAGE_EXPANDED_SIZE={expanded}")
+    print(f"SYSTEM_IMAGE_SHA256={hashlib.sha256(data).hexdigest()}")
+    print("SYSTEM_IMAGE_SIZE_CONTRACT=PASS")
+
+def audit_policy(out: Path) -> None:
+    candidates=[]
+    names={
+        "sepolicy","precompiled_sepolicy","plat_sepolicy.cil",
+        "vendor_sepolicy.cil","mapping",
+    }
+    for root in installed_roots(out):
+        for p in root.rglob("*"):
+            if p.is_file() and (p.name in names or "sepolicy" in p.name):
+                if p.stat().st_size>0:
+                    candidates.append(p)
+    print(f"BUILT_SEPOLICY_ARTIFACTS={len(candidates)}")
+    if not candidates:
+        fail("no built SELinux policy artifacts found")
+    print("BUILT_SEPOLICY_ARTIFACTS=PASS")
+
+def main() -> int:
+    ap=argparse.ArgumentParser()
+    ap.add_argument("--root",required=True,type=Path)
+    ap.add_argument("--report-dir",required=True,type=Path)
+    args=ap.parse_args()
+    root=args.root.resolve()
+    out=root/"out/target/product/TB8504"
+    args.report_dir.mkdir(parents=True,exist_ok=True)
+    if not out.is_dir():
+        fail(f"product output missing: {out}")
+
+    print("=== TB8504 ACTUAL BUILT OUTPUT AUDIT ===")
+    audit_build_props(out)
+    audit_vendor_copy(root,out)
+    audit_runtime(out)
+    audit_removed_outputs(out)
+    audit_vintf(out)
+    audit_modules(root,out)
+    audit_system_image(out)
+    audit_policy(out)
+
+    print("ACTUAL_BUILT_OUTPUT_AUDIT=PASS")
+    return 0
+
+if __name__=="__main__":
+    raise SystemExit(main())
