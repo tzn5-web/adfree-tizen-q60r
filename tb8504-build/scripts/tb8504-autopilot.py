@@ -1735,6 +1735,13 @@ def static_self_test() -> None:
         raise RuntimeError(
             f"dynamic primary repo contract mismatch: {sorted(dynamic)}"
         )
+    workspace = integrity.get("workspace_repo_contract", {})
+    if not isinstance(workspace, dict):
+        raise RuntimeError("workspace repo contract missing")
+    if "revision_fingerprint" not in workspace:
+        raise RuntimeError("workspace revision fingerprint field missing")
+    if "expected_project_count" not in workspace:
+        raise RuntimeError("workspace project-count field missing")
     if (
         integrity.get("required_unproven_repo")
         != "hardware/qcom-caf/msm8996/gps"
