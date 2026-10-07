@@ -377,7 +377,8 @@
       "STAGE8N reconstructs device and vendor from approved baseline HEAD + tracked patch + untracked files and verifies exact git status",
       "device tar must match the provenance-reconstructed device tree including file type, mode, size and content",
       "static build-critical repository provenance is bound to exported patch bytes and rechecked against approved knowledge contracts before promotion",
-      "provenance promotion is allowed only after all STAGE8N gates pass and while the branch still points at the immutable request commit"
+      "provenance promotion is allowed only after all STAGE8N gates pass and while the branch still points at the immutable request commit",
+      "GPS provenance is git-backed only; non-git GPS trees are rejected before export because the canonical seed requires per-repo HEAD/patch/status metadata"
     ]
   },
   "source_integrity_contracts": {
@@ -453,7 +454,8 @@
       "device_reconstruction": "baseline HEAD + tracked patch + untracked, then exact status and tar metadata/content equivalence",
       "vendor_reconstruction": "baseline HEAD + tracked patch + untracked, then exact status",
       "static_repos": "captured at local contract gate and re-bound to seed patch bytes before STAGE8N acceptance"
-    }
+    },
+    "gps_provenance_policy": "canonical v2 provenance requires hardware/qcom-caf/msm8996/gps to be a readable git worktree; plain-tree mode is rejected before seed export"
   },
   "performance_contract": {
     "target": "Snapdragon 425 / 2 GB low-end Android 16",
