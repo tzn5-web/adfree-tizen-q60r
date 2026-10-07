@@ -354,11 +354,10 @@ def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict, dict]:
         ):
             if not re.fullmatch(rx, str(gps.get(key, ""))):
                 fail(f"GPS provenance invalid {key}")
-    elif mode == "tree":
-        if not re.fullmatch(r"[0-9a-f]{64}", str(gps.get("tree_sha256", ""))):
-            fail("GPS tree provenance invalid")
     else:
-        fail(f"GPS provenance mode is not buildable: {mode!r}")
+        fail(
+            f"GPS provenance must be git-backed in canonical v2 seed: {mode!r}"
+        )
 
     expected_primary = {"device/lenovo/TB8504", "vendor/lenovo/TB8504"}
     if set(primary) != expected_primary:
