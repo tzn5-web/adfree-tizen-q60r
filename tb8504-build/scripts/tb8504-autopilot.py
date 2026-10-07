@@ -2189,6 +2189,8 @@ def static_self_test() -> None:
     ).read_text("utf-8", errors="replace")
     for guard in (
         "SEED_TOOLING_REF=$EXPECTED_TOOLING_REF",
+        "DEVICE_RECONSTRUCTED_FROM_PROVENANCE=PASS",
+        "DEVICE_TAR_PROVENANCE_BINDING=PASS",
         "accept-converged-provenance.py",
         "PROVENANCE_KNOWLEDGE_PROMOTION=PASS",
     ):
