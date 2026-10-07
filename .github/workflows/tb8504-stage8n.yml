@@ -218,6 +218,23 @@ jobs:
           echo "RESIDUAL_CLEANUP_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
 
+      - name: Verify residual cleanup idempotency
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/apply-residual-cleanup.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --vendor /tmp/tb8504-stage8n/reconstructed/vendor \
+            --patch-out /tmp/tb8504-stage8n/report/residual-cleanup-second.patch \
+            --report-out /tmp/tb8504-stage8n/report/residual-cleanup-second.txt \
+            2>&1 | tee /tmp/tb8504-stage8n/report/residual-cleanup-second.log
+          RC=${PIPESTATUS[0]}
+          [ "$RC" -eq 0 ] || exit "$RC"
+          grep -Fx 'RESIDUAL_CLEANUP_STATE=ALREADY_APPLIED' /tmp/tb8504-stage8n/report/residual-cleanup-second.txt
+          grep -Fx 'CHANGED_FILES=0' /tmp/tb8504-stage8n/report/residual-cleanup-second.txt
+          test ! -s /tmp/tb8504-stage8n/report/residual-cleanup-second.patch
+          echo "RESIDUAL_IDEMPOTENCY=PASS" >> /tmp/tb8504-stage8n/report/STATUS.txt
+
       - name: Migrate Android 16 product build overrides
         shell: bash
         run: |
@@ -230,6 +247,21 @@ jobs:
           RC=${PIPESTATUS[0]}
           echo "PRODUCT_COMPAT_RC=$RC" >> /tmp/tb8504-stage8n/report/STATUS.txt
           exit "$RC"
+
+      - name: Verify product compatibility idempotency
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tb8504-build/scripts/apply-product-compat.py \
+            --device /tmp/tb8504-stage8n/reconstructed/device/TB8504 \
+            --patch-out /tmp/tb8504-stage8n/report/product-compat-second.patch \
+            --report-out /tmp/tb8504-stage8n/report/product-compat-second.txt \
+            2>&1 | tee /tmp/tb8504-stage8n/report/product-compat-second.log
+          RC=${PIPESTATUS[0]}
+          [ "$RC" -eq 0 ] || exit "$RC"
+          grep -Fx 'PRODUCT_COMPAT_STATE=ALREADY_APPLIED' /tmp/tb8504-stage8n/report/product-compat-second.txt
+          test ! -s /tmp/tb8504-stage8n/report/product-compat-second.patch
+          echo "PRODUCT_COMPAT_IDEMPOTENCY=PASS" >> /tmp/tb8504-stage8n/report/STATUS.txt
 
       - name: Audit Android 16 product build overrides
         shell: bash
