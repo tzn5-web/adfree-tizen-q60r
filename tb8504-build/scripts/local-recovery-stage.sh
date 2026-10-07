@@ -6,7 +6,7 @@
 
 set -Eeo pipefail
 
-ROOT="\${1:-/home/dre/android16-tb8504/lineage-23.2}"
+ROOT="${1:-/home/dre/android16-tb8504/lineage-23.2}"
 DEVICE="$ROOT/device/lenovo/TB8504"
 VENDOR="$ROOT/vendor/lenovo/TB8504"
 PRODUCT_OUT="$ROOT/out/target/product/TB8504"
