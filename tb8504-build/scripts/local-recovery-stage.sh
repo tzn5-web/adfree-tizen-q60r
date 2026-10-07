@@ -75,7 +75,7 @@ python3 "$TOOLS/apply-residual-cleanup.py" \
   --patch-out "$REPORT/residual-cleanup.patch" \
   --report-out "$REPORT/residual-cleanup.txt" \
   2>&1 | tee "$REPORT/residual-cleanup.log"
-RC=\${PIPESTATUS[0]}
+RC=${PIPESTATUS[0]}
 [ "$RC" -eq 0 ] || fail 20 "residual cleanup failed rc=$RC"
 
 echo
@@ -85,7 +85,7 @@ python3 "$TOOLS/apply-product-compat.py" \
   --patch-out "$REPORT/product-compat.patch" \
   --report-out "$REPORT/product-compat.txt" \
   2>&1 | tee "$REPORT/product-compat.log"
-RC=\${PIPESTATUS[0]}
+RC=${PIPESTATUS[0]}
 [ "$RC" -eq 0 ] || fail 21 "product compat migration failed rc=$RC"
 
 echo
@@ -103,7 +103,7 @@ echo
 echo "=== PRODUCT COMPAT AUDIT ==="
 python3 "$TOOLS/audit-product-compat.py" --device "$DEVICE" \
   2>&1 | tee "$REPORT/product-compat-audit.log"
-RC=\${PIPESTATUS[0]}
+RC=${PIPESTATUS[0]}
 [ "$RC" -eq 0 ] || fail 23 "product compat audit failed rc=$RC"
 
 echo
@@ -111,7 +111,7 @@ echo "=== RESIDUAL CONTRACT AUDIT ==="
 python3 "$TOOLS/audit-residual-contracts.py" \
   --device "$DEVICE" --vendor "$VENDOR" \
   2>&1 | tee "$REPORT/residual-contracts.log"
-RC=\${PIPESTATUS[0]}
+RC=${PIPESTATUS[0]}
 [ "$RC" -eq 0 ] || fail 24 "residual contract audit failed rc=$RC"
 
 echo
@@ -121,7 +121,7 @@ python3 "$TOOLS/audit-stage8n.py" \
   --device "$DEVICE" \
   --report-dir "$REPORT/elf" \
   2>&1 | tee "$REPORT/elf.log"
-RC=\${PIPESTATUS[0]}
+RC=${PIPESTATUS[0]}
 [ "$RC" -eq 0 ] || fail 25 "ELF audit failed rc=$RC"
 
 MODULE_INFO="$PRODUCT_OUT/module-info.json"
@@ -135,7 +135,7 @@ python3 "$TOOLS/audit-runtime-contracts.py" \
   --report-dir "$REPORT/runtime" \
   --module-info "$MODULE_INFO" \
   2>&1 | tee "$REPORT/runtime.log"
-RC=\${PIPESTATUS[0]}
+RC=${PIPESTATUS[0]}
 [ "$RC" -eq 0 ] || fail 27 "runtime contract audit failed rc=$RC"
 
 grep -Fx 'UNRESOLVED_EDGES=0' "$REPORT/elf.log" >/dev/null || fail 28 "ELF unresolved edges nonzero"
@@ -162,7 +162,7 @@ echo
 echo "=== BUILD RECOVERYIMAGE ONLY ==="
 set +e
 mka recoveryimage 2>&1 | tee "$REPORT/BUILD.log"
-BUILD_RC=\${PIPESTATUS[0]}
+BUILD_RC=${PIPESTATUS[0]}
 set -e
 echo "BUILD_RC=$BUILD_RC" | tee "$REPORT/BUILD_STATUS.txt"
 [ "$BUILD_RC" -eq 0 ] || fail 42 "recoveryimage build failed rc=$BUILD_RC"
@@ -255,14 +255,14 @@ for mount in ("/system","/data","/misc","/persist","/cache","/vendor/dsp","/vend
         die(f"recovery fstab missing {mount}")
 
 rt=rc.read_text("utf-8",errors="replace")
-if "symlink /dev/block/platform/soc/\${ro.boot.bootdevice} /dev/block/bootdevice" not in rt:
+if "symlink /dev/block/platform/soc/${ro.boot.bootdevice} /dev/block/bootdevice" not in rt:
     die("recovery bootdevice symlink contract missing")
 
 print("RECOVERY_FSTAB_CONTRACT=PASS")
 print("RECOVERY_INIT_CONTRACT=PASS")
 print("RECOVERY_AUDIT=PASS")
 PY
-AUDIT_RC=\${PIPESTATUS[0]}
+AUDIT_RC=${PIPESTATUS[0]}
 [ "$AUDIT_RC" -eq 0 ] || fail 44 "recovery image audit failed rc=$AUDIT_RC"
 
 {
