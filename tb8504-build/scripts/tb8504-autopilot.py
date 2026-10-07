@@ -1412,13 +1412,61 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
 
         return False
 
+    def artifact_state(self, path: Path) -> dict[str, object] | None:
+        if not path.is_file():
+            return None
+        st = path.stat()
+        return {
+            "sha256": self.sha_file(path),
+            "size": st.st_size,
+            "mtime_ns": st.st_mtime_ns,
+        }
+
+    def build_binding_current(self, kind: str) -> bool:
+        if kind in {"boot", "recovery"}:
+            image = self.product_out / f"{kind}.img"
+            return image.is_file() and self.image_binding_current(kind, image)
+        return self.partition_binding_current(kind)
+
     def build_target(self, target: str) -> str:
         self.say("")
         self.say(f"=== BUILD TARGET: {target} ===")
+        target_kinds = {
+            "bootimage": ("boot",),
+            "recoveryimage": ("recovery",),
+            "systemimage": ("system",),
+            "vendorimage": ("vendor",),
+            "bacon": ("boot", "recovery", "system"),
+        }.get(target, ())
         for attempt in range(1, self.max_attempts + 1):
+            before_artifacts = {
+                kind: self.artifact_state(self.product_out / f"{kind}.img")
+                for kind in target_kinds
+            }
+            stale_before = {
+                kind: not self.build_binding_current(kind)
+                for kind in target_kinds
+            }
             self.say(f"BUILD_ATTEMPT={attempt}/{self.max_attempts}")
             r = self.android_shell(f"mka {sh_quote(target)}", f"build-{target}-attempt{attempt}.log")
             if r.rc == 0:
+                for kind in target_kinds:
+                    after = self.artifact_state(self.product_out / f"{kind}.img")
+                    if after is None:
+                        raise StopAutopilot(
+                            f"successful {target} produced no {kind}.img"
+                        )
+                    if stale_before[kind]:
+                        before = before_artifacts[kind]
+                        if before is not None and after == before:
+                            raise StopAutopilot(
+                                f"successful {target} did not refresh stale "
+                                f"{kind}.img; refusing source re-binding"
+                            )
+                        self.say(
+                            f"{kind.upper()}_ARTIFACT_REFRESH=PASS "
+                            f"target={target}"
+                        )
                 self.say(f"BUILD_TARGET={target}")
                 self.say("BUILD_RC=0")
                 return "BUILT"
@@ -1973,6 +2021,8 @@ def static_self_test() -> None:
         "self.safety_check_command(printable)",
         "UNKNOWN_BUILD_ERROR",
         "STOP_WITH_DIAGNOSTIC_BUNDLE",
+        "did not refresh stale",
+        "_ARTIFACT_REFRESH=PASS",
     )
     for guard in required_guards:
         if guard not in source_text and guard not in json.dumps(knowledge):
