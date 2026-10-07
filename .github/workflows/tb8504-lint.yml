@@ -52,6 +52,14 @@ jobs:
             exit 3
           fi
           python3 -m py_compile "${PY_FILES[@]}"
+          for f in "${PY_FILES[@]}"; do
+            python3 - "$f" <<'PY'
+          import runpy
+          import sys
+          path = sys.argv[1]
+          runpy.run_path(path, run_name="__tb8504_import_audit__")
+          PY
+          done
 
       - name: Repository consistency
         shell: bash
