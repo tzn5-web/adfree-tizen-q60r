@@ -104,9 +104,12 @@ if [ -x "$REPO_BIN" ]; then
     (cd "$ROOT" && "$REPO_BIN" status) > "$OUT/meta/REPO_STATUS_FULL.txt" 2>&1 || true
 fi
 
-printf '%s\n' "${REPOS[@]}" | sort -u > "$OUT/meta/EXPORTED_REPOS.txt"
+printf '%s\n' "${REPOS[@]}" | sort -u > "$OUT/meta/REQUESTED_REPOS.txt"
+: > "$OUT/meta/EXPORTED_REPOS.txt"
+: > "$OUT/meta/MISSING_REPOS.txt"
 : > "$OUT/meta/REPOS.txt"
 : > "$OUT/meta/SKIPPED_SENSITIVE_FILES.txt"
+CAPTURED_REPOS=()
 
 for REL in "${REPOS[@]}"; do
     DIR="$ROOT/$REL"
@@ -114,9 +117,11 @@ for REL in "${REPOS[@]}"; do
 
     if ! git -C "$DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         warn "not a git worktree: $REL"
+        echo "$REL" >> "$OUT/meta/MISSING_REPOS.txt"
         continue
     fi
 
+    CAPTURED_REPOS+=("$REL")
     HEAD_SHA="$(git -C "$DIR" rev-parse HEAD 2>/dev/null)"
     REMOTE_RAW="$(git -C "$DIR" remote get-url origin 2>/dev/null)"
     REMOTE="$(sanitize_remote "$REMOTE_RAW")"
@@ -190,6 +195,13 @@ for REL in "${REPOS[@]}"; do
         cp -a "$SRC" "$DST"
     done < <(git -C "$DIR" ls-files --others --exclude-standard -z 2>/dev/null)
 done
+
+printf '%s\n' "${CAPTURED_REPOS[@]}" | sort -u > "$OUT/meta/EXPORTED_REPOS.txt"
+if [ -s "$OUT/meta/MISSING_REPOS.txt" ]; then
+    echo "Requested source repositories that were not captured:" >&2
+    cat "$OUT/meta/MISSING_REPOS.txt" >&2
+    fail "source snapshot incomplete; every requested repo must be a readable git worktree"
+fi
 
 # Full device tree is small and contains the Android 16 ramdisk/product source.
 tar -czf "$OUT/device_lenovo_TB8504.tar.gz"     -C "$ROOT/device/lenovo"     --exclude='.git'     TB8504 2>/dev/null || fail "device tree tar failed"
