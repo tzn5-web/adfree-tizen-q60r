@@ -347,7 +347,8 @@
       "no device access",
       "automatic audited cloud seed v2 export",
       "optional --upload-seed handoff through the same tb8504-autopilot.py entry point",
-      "when upload is selected, the STAGE8N request commit is parented directly to TOOLING_REF and the branch update must be fast-forward"
+      "when upload is selected, the STAGE8N request commit is parented directly to TOOLING_REF and the branch update must be fast-forward",
+      "after every STAGE8N gate passes, GitHub promotes the captured GPS/device/vendor/workspace provenance into autopilot-knowledge.json with a fast-forward-only commit"
     ],
     "seed_handoff_contract": {
       "single_entry_point": "tb8504-build/scripts/tb8504-autopilot.py",
@@ -358,7 +359,17 @@
       "branch_update": "fast-forward only",
       "seed_metadata_requires_tooling_ref": true,
       "no_build": true,
-      "no_device_access": true
+      "no_device_access": true,
+      "post_stage8n_provenance_promotion": true,
+      "promotion_requires": [
+        "seed SHA256 and ZIP integrity PASS",
+        "seed TOOLING_REF equals the request commit parent",
+        "workspace fingerprint recomputes from the full project inventory",
+        "GPS and device/vendor provenance is structurally valid and bound to exported patch data",
+        "all STAGE8N source/runtime/residual/product/performance gates PASS",
+        "branch HEAD still equals the STAGE8N request commit"
+      ],
+      "promotion_target": "source_integrity_contracts.gps_repo + dynamic_primary_repos + workspace_repo_contract"
     }
   },
   "source_integrity_contracts": {
