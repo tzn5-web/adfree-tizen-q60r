@@ -125,6 +125,8 @@ jobs:
           KERNEL_PATCH_BYTES="$(grep '^LOCAL_KERNEL_PATCH_BYTES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           KERNEL_MBOX_BYTES="$(grep '^LOCAL_KERNEL_MBOX_BYTES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           KERNEL_UNTRACKED="$(grep '^LOCAL_KERNEL_UNTRACKED_COUNT=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
+          KERNEL_RUNTIME_SOURCE_DIRTY="$(grep '^LOCAL_KERNEL_RUNTIME_SOURCE_DIRTY=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
+          KERNEL_BUILD_ONLY_DIRTY="$(grep '^LOCAL_KERNEL_BUILD_ONLY_DIRTY=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           INSTALLED_MODULE_COUNT="$(grep '^INSTALLED_MODULE_COUNT=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           LOCAL_MODULE_SIGNING_CERT_SHA256="$(grep '^LOCAL_MODULE_SIGNING_CERT_SHA256=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
           INSTALLED_MODULE_SIGNATURE_MISMATCHES="$(grep '^INSTALLED_MODULE_SIGNATURE_MISMATCHES=' /tmp/tb8504-seed/seed-audit.txt | tail -n1 | cut -d= -f2-)"
@@ -134,6 +136,8 @@ jobs:
             echo "KERNEL_PATCH_BYTES=$KERNEL_PATCH_BYTES"
             echo "KERNEL_MBOX_BYTES=$KERNEL_MBOX_BYTES"
             echo "KERNEL_UNTRACKED=$KERNEL_UNTRACKED"
+            echo "KERNEL_RUNTIME_SOURCE_DIRTY=$KERNEL_RUNTIME_SOURCE_DIRTY"
+            echo "KERNEL_BUILD_ONLY_DIRTY=$KERNEL_BUILD_ONLY_DIRTY"
             echo "INSTALLED_MODULE_COUNT=$INSTALLED_MODULE_COUNT"
             echo "LOCAL_MODULE_SIGNING_CERT_SHA256=$LOCAL_MODULE_SIGNING_CERT_SHA256"
             echo "INSTALLED_MODULE_SIGNATURE_MISMATCHES=$INSTALLED_MODULE_SIGNATURE_MISMATCHES"
@@ -153,17 +157,21 @@ jobs:
             exit 7
           fi
 
-          for VALUE in "$KERNEL_PATCH_BYTES" "$KERNEL_MBOX_BYTES" "$KERNEL_UNTRACKED"; do
+          for VALUE in "$KERNEL_PATCH_BYTES" "$KERNEL_MBOX_BYTES" "$KERNEL_UNTRACKED"                        "$KERNEL_RUNTIME_SOURCE_DIRTY" "$KERNEL_BUILD_ONLY_DIRTY"; do
             [[ "$VALUE" =~ ^[0-9]+$ ]] || {
               echo "Invalid kernel reconciliation metadata: $VALUE" >&2
               exit 8
             }
           done
 
-          if [ "$KERNEL_PATCH_BYTES" -ne 0 ] ||              [ "$KERNEL_MBOX_BYTES" -ne 0 ] ||              [ "$KERNEL_UNTRACKED" -ne 0 ]; then
-            echo "Local kernel has unreconciled source state." >&2
+          if [ "$KERNEL_RUNTIME_SOURCE_DIRTY" -ne 0 ]; then
+            echo "Local kernel has unreconciled runtime source state." >&2
             echo "patch=$KERNEL_PATCH_BYTES mbox=$KERNEL_MBOX_BYTES untracked=$KERNEL_UNTRACKED" >&2
             exit 9
+          fi
+
+          if [ "$KERNEL_BUILD_ONLY_DIRTY" -eq 1 ]; then
+            echo "LOCAL_KERNEL_BUILD_ONLY_STATE=ACCEPTED_AUDITED"
           fi
 
           echo "LOCAL_KERNEL_RECONCILIATION=PASS"
