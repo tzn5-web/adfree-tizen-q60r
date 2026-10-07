@@ -1055,6 +1055,18 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             raise StopAutopilot(f"{kind} image audit failed after successful build")
         self.say(f"{kind.upper()}_BUILD=PASS")
 
+    def partition_binding_current(self, kind: str) -> bool:
+        image = self.product_out / f"{kind}.img"
+        if not image.is_file() or not self.current_source_fingerprint:
+            return False
+        row = self.state.get("images", {}).get(kind, {})
+        if not isinstance(row, dict):
+            return False
+        return (
+            row.get("source_fingerprint") == self.current_source_fingerprint
+            and row.get("sha256") == self.sha_file(image)
+        )
+
     def audit_partition_image(self, kind: str, limit: int | None) -> None:
         image = self.product_out / f"{kind}.img"
         if not image.is_file() or image.stat().st_size <= 0:
@@ -1088,6 +1100,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             "sha256": sha,
             "size": stored,
             "expanded_size": expanded,
+            "source_fingerprint": self.current_source_fingerprint,
             "audited": dt.datetime.now().isoformat(),
             "tooling_ref": self.tooling_ref,
         }
