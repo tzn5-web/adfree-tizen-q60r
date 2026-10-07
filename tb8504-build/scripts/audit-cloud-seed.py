@@ -16,6 +16,7 @@ import zipfile
 BOOT_LIMIT = 67_108_864
 RECOVERY_LIMIT = 67_108_864
 MAX_MEMBER = 128 * 1024 * 1024
+MAX_WINDOWS_HOST_RUST_PATCH = 256 * 1024 * 1024
 MAX_TOTAL_UNCOMPRESSED = 512 * 1024 * 1024
 MAX_DEVICE_TREE_UNCOMPRESSED = 128 * 1024 * 1024
 
@@ -343,7 +344,39 @@ def main() -> int:
                 fail(f"unsafe zip path: {info.filename}")
 
             if info.file_size > MAX_MEMBER:
-                fail(f"member too large: {info.filename} ({info.file_size})")
+                if (
+                    info.filename == "patches/prebuilts__rust.patch"
+                    and info.file_size <= MAX_WINDOWS_HOST_RUST_PATCH
+                ):
+                    status_name = "meta/prebuilts__rust.status.txt"
+                    if status_name not in names:
+                        fail("oversized Rust patch has no status inventory")
+
+                    rust_status = z.read(status_name).decode("utf-8", "replace")
+                    rust_paths = []
+                    for raw in rust_status.splitlines():
+                        if not raw.strip():
+                            continue
+                        if len(raw) < 4:
+                            fail("malformed prebuilts/rust status line")
+                        path = raw[3:]
+                        if " -> " in path:
+                            path = path.split(" -> ", 1)[1]
+                        rust_paths.append(path)
+
+                    if not rust_paths or any(
+                        not path.startswith("windows-x86/") for path in rust_paths
+                    ):
+                        fail(
+                            "oversized Rust patch is not confined to windows-x86 host files"
+                        )
+
+                    print(
+                        "IGNORED_WINDOWS_HOST_RUST_PATCH="
+                        f"{info.file_size}:{len(rust_paths)}"
+                    )
+                else:
+                    fail(f"member too large: {info.filename} ({info.file_size})")
 
             total_uncompressed += info.file_size
             if total_uncompressed > MAX_TOTAL_UNCOMPRESSED:
@@ -559,6 +592,41 @@ def main() -> int:
 
         if patch_bytes < 0 or mbox_bytes < 0:
             fail("kernel patch/commit state was not exported")
+
+        kernel_status_lines = {
+            line.rstrip() for line in status_text.splitlines() if line.strip()
+        }
+        known_build_only_status = {
+            " M scripts/sign-file",
+            "?? include/sound/Kbuild",
+        }
+        known_build_only_untracked = [
+            "untracked/kernel/lenovo/msm8917/include/sound/Kbuild"
+        ]
+
+        if (
+            patch_bytes == 0
+            and mbox_bytes == 0
+            and not kernel_status_lines
+            and not untracked_kernel
+        ):
+            kernel_runtime_source_dirty = 0
+            kernel_build_only_dirty = 0
+        elif (
+            mbox_bytes == 0
+            and kernel_status_lines == known_build_only_status
+            and untracked_kernel == known_build_only_untracked
+        ):
+            kernel_runtime_source_dirty = 0
+            kernel_build_only_dirty = 1
+        else:
+            kernel_runtime_source_dirty = 1
+            kernel_build_only_dirty = 0
+
+        print(
+            f"LOCAL_KERNEL_RUNTIME_SOURCE_DIRTY={kernel_runtime_source_dirty}"
+        )
+        print(f"LOCAL_KERNEL_BUILD_ONLY_DIRTY={kernel_build_only_dirty}")
 
         exported_repos = z.read(
             "meta/EXPORTED_REPOS.txt"
