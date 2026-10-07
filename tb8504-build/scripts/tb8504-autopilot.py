@@ -2192,6 +2192,7 @@ def static_self_test() -> None:
         "primary-source-state.json",
         "PROVENANCE_CAPTURED=YES",
         "untracked symlink unsupported by canonical seed",
+        "hardware/qcom-caf/msm8996/gps",
     ):
         if guard not in exporter_text:
             raise RuntimeError(
@@ -2211,6 +2212,7 @@ def static_self_test() -> None:
         "workspace_revision_fingerprint",
         "verify_untracked_seed",
         "untracked seed coverage mismatch",
+        "GPS provenance must be git-backed before promotion",
     ):
         if guard not in provenance_text:
             raise RuntimeError(
