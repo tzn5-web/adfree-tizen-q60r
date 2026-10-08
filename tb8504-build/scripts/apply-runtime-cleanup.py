@@ -2,7 +2,7 @@
 """Idempotent, fail-closed TB8504 Android 16 runtime cleanup.
 
 Known validated repairs:
-  * remove the 25 init service definitions proven absent from the intended
+  * remove the 27 init service definitions proven absent from the intended
     runtime payload;
   * remove the stale mm-qcamera-daemon process SDK override;
   * remove the stale Qualcomm Wi-Fi Display VINTF HAL;
@@ -29,6 +29,8 @@ DEAD_SERVICES = {
     "diag_mdlog_start", "diag_mdlog_stop", "vm_bms", "vendor.LKCore-dbg",
     "vendor.LKCore-rel", "poweroffhandler", "vendor.hbtp", "qcamerasvr",
     "perfd", "gamed", "hbtp",
+    # Absent from the TB8504 vendor payload and device product modules.
+    "nqnfcinfo", "vendor.contexthub-hal-1-0",
 }
 SERVICE_RE = re.compile(r"^service\s+(\S+)\s+")
 WFD_HAL = "com.qualcomm.qti.wifidisplayhal"
