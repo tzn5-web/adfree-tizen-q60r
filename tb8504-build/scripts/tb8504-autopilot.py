@@ -83,6 +83,15 @@ KNOWN_RECOVERY_SHA256 = "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725dd
 KNOWN_RECOVERY_SIZE = 42618880
 KNOWN_RECOVERY_KERNEL_SHA256 = "6dcb32cde2d172b7e4467cc9015ccb6c292668f2155f1749ac2e186d0c4577fe"
 
+def is_android16_platform_version(platform_version: str, sdk_version: str) -> bool:
+    """Accept AOSP development-codename or finalized numeric Android 16.
+
+    AOSP trunk_staging can expose PLATFORM_VERSION=Baklava even with SDK 36.
+    Require the exact SDK level and exact recognized version, never a prefix.
+    """
+    return sdk_version == "36" and platform_version in {"16", "Baklava"}
+
+
 class StopAutopilot(RuntimeError):
     pass
 
@@ -1169,8 +1178,14 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         for key, wanted in expected.items():
             if info.get(key) != wanted:
                 raise StopAutopilot(f"release identity mismatch {key}: {info.get(key)!r} != {wanted!r}")
-        if not info.get("PLATFORM_VERSION", "").startswith("16"):
-            raise StopAutopilot(f"platform is not Android 16: {info.get('PLATFORM_VERSION')!r}")
+        if not is_android16_platform_version(
+            info.get("PLATFORM_VERSION", ""), info.get("PLATFORM_SDK_VERSION", "")
+        ):
+            raise StopAutopilot(
+                "platform is not Android 16: "
+                f"version={info.get('PLATFORM_VERSION')!r} "
+                f"sdk={info.get('PLATFORM_SDK_VERSION')!r}"
+            )
         if not info.get("LINEAGE_VERSION", "").startswith("23.2-"):
             raise StopAutopilot(f"Lineage version is not 23.2: {info.get('LINEAGE_VERSION')!r}")
         self.release_info = info
@@ -2074,6 +2089,22 @@ def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 def static_self_test() -> None:
+    for platform, sdk, expected in (
+        ("16", "36", True),
+        ("Baklava", "36", True),
+        ("15", "36", False),
+        ("17", "36", False),
+        ("VanillaIceCream", "36", False),
+        ("16.1", "36", False),
+        ("16", "35", False),
+        ("Baklava", "35", False),
+        ("", "36", False),
+    ):
+        if is_android16_platform_version(platform, sdk) != expected:
+            raise RuntimeError(
+                f"Android 16 release identity self-test failed: "
+                f"platform={platform!r}, sdk={sdk!r}, expected={expected}"
+            )
     repo_root = Path(__file__).resolve().parents[2]
     knowledge_file = repo_root / KNOWLEDGE_PATH
     if not knowledge_file.is_file():
