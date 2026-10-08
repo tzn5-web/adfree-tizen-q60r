@@ -172,8 +172,10 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           import hashlib
+          import io
           import json
           import subprocess
+          import tarfile
           import tempfile
           import zipfile
           from pathlib import Path
@@ -339,6 +341,93 @@ jobs:
               assert sic["dynamic_primary_repos"]["device/lenovo/TB8504"]["post_converge_patch_sha256"] == primary["device/lenovo/TB8504"]["patch_sha256"]
               assert sic["dynamic_primary_repos"]["device/lenovo/TB8504"]["post_converge_untracked_manifest_sha256"] == dev_untracked_manifest
               assert out["cloud_seed"]["legacy_seed_only"] is False
+
+              # Actual TB8504 layout: external GPS checkout absent, GNSS source
+              # included in device tree and therefore in device provenance.
+              bundled_workspace=json.loads(json.dumps(workspace))
+              bundled_projects=[
+                  p for p in projects
+                  if p["path"] != "hardware/qcom-caf/msm8996/gps"
+              ]
+              wh2=hashlib.sha256()
+              for row in sorted(bundled_projects,key=lambda x:x["path"]):
+                  wh2.update(row["path"].encode()+b"\\0")
+                  wh2.update(row["head"].encode()+b"\\0")
+              wh2.update(b"LOCAL_MANIFESTS\\0"+manifests.encode()+b"\\0")
+              bundled_workspace["projects"]=bundled_projects
+              bundled_workspace["project_count"]=len(bundled_projects)
+              bundled_workspace["revision_fingerprint"]=wh2.hexdigest()
+              bundled_gps={
+                  "path":"hardware/qcom-caf/msm8996/gps",
+                  "mode":"absent",
+                  "exists":False,
+                  "is_dir":False,
+              }
+              def device_tar(complete):
+                  buf=io.BytesIO()
+                  with tarfile.open(fileobj=buf,mode="w:gz") as tf:
+                      names=[
+                          "TB8504/gps/android/Android.mk",
+                          "TB8504/gps/core/Android.mk",
+                          "TB8504/gps/utils/Android.mk",
+                      ]
+                      for name in names if complete else names[:-1]:
+                          data=b"LOCAL_PATH := $(call my-dir)\\n"
+                          info=tarfile.TarInfo(name)
+                          info.size=len(data)
+                          info.mode=0o644
+                          tf.addfile(info,io.BytesIO(data))
+                  return buf.getvalue()
+              bundled_seed=td/"seed-bundled-gnss.zip"
+              with zipfile.ZipFile(seed) as src,zipfile.ZipFile(bundled_seed,"w") as dst:
+                  for info in src.infolist():
+                      if info.filename == "patches/hardware__qcom-caf__msm8996__gps.patch":
+                          continue
+                      data=src.read(info.filename)
+                      if info.filename=="meta/workspace-source-state.json":
+                          data=json.dumps(bundled_workspace).encode()
+                      elif info.filename=="meta/gps-source-state.json":
+                          data=json.dumps(bundled_gps).encode()
+                      dst.writestr(info,data)
+                  dst.writestr("device_lenovo_TB8504.tar.gz",device_tar(True))
+              bundled_output=td/"accepted-bundled.json"
+              bundled_run=subprocess.run([
+                  "python3","tb8504-build/scripts/accept-converged-provenance.py",
+                  "--seed",str(bundled_seed),
+                  "--knowledge",str(kin),
+                  "--out",str(bundled_output),
+                  "--release-tag","tb8504-selftest",
+                  "--request-commit",request,
+                  "--tooling-ref",tooling,
+              ],text=True,capture_output=True)
+              if bundled_run.returncode!=0:
+                  raise SystemExit(bundled_run.stdout+"\\n"+bundled_run.stderr)
+              assert json.loads(bundled_output.read_text())[
+                  "source_integrity_contracts"
+              ]["gps_repo"] == {
+                  "mode":"absent",
+                  "source":"device/lenovo/TB8504/gps",
+              }
+              incomplete_seed=td/"seed-incomplete-gnss.zip"
+              with zipfile.ZipFile(bundled_seed) as src,zipfile.ZipFile(incomplete_seed,"w") as dst:
+                  for info in src.infolist():
+                      data=src.read(info.filename)
+                      if info.filename=="device_lenovo_TB8504.tar.gz":
+                          data=device_tar(False)
+                      dst.writestr(info,data)
+              incomplete_run=subprocess.run([
+                  "python3","tb8504-build/scripts/accept-converged-provenance.py",
+                  "--seed",str(incomplete_seed),
+                  "--knowledge",str(kin),
+                  "--out",str(td/"should-not-accept-incomplete-gnss.json"),
+                  "--release-tag","tb8504-selftest",
+                  "--request-commit",request,
+                  "--tooling-ref",tooling,
+              ],text=True,capture_output=True)
+              assert incomplete_run.returncode!=0
+              assert "bundled GNSS source incomplete" in (
+                  incomplete_run.stdout+incomplete_run.stderr
+              )
 
               bad_seed=td/"seed-tampered.zip"
               with zipfile.ZipFile(seed) as src, zipfile.ZipFile(bad_seed,"w") as dst:
