@@ -63,7 +63,6 @@ BASE_REPOS=(
     "hardware/qcom-caf/msm8996/audio"
     "hardware/qcom-caf/msm8996/media"
     "hardware/qcom-caf/msm8996/display"
-    "hardware/qcom-caf/msm8996/gps"
     "hardware/lineage/compat"
     "device/qcom/sepolicy-legacy-um"
 )
@@ -83,6 +82,19 @@ add_repo() {
 for REL in "${BASE_REPOS[@]}"; do
     add_repo "$REL"
 done
+
+# TB8504 includes its GNSS implementation in the device repository. Preserve
+# provenance for a separate GPS repo if one actually exists, but never invent
+# a missing repository merely because an older seed listed its path.
+if [ -d "$ROOT/hardware/qcom-caf/msm8996/gps" ]; then
+    add_repo "hardware/qcom-caf/msm8996/gps"
+elif [ -f "$ROOT/device/lenovo/TB8504/gps/android/Android.mk" ] && \
+     [ -f "$ROOT/device/lenovo/TB8504/gps/core/Android.mk" ] && \
+     [ -f "$ROOT/device/lenovo/TB8504/gps/utils/Android.mk" ]; then
+    log "GPS_SOURCE_LAYOUT=DEVICE_TREE"
+else
+    fail "no external GPS repo and bundled device GPS sources incomplete"
+fi
 
 # Discover any additional modified repo automatically. This catches fixes that
 # were made outside the manually curated list.
