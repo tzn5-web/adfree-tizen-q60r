@@ -446,18 +446,31 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
                 BLOB_SHA="$(gh api --method POST "repos/$GITHUB_REPO/git/blobs" \
                     -f content="$REQUEST_BODY" -f encoding="utf-8" --jq '.sha')"
                 BASE_TREE="$(gh api --method GET "repos/$GITHUB_REPO/git/commits/$TOOLING_REF" --jq '.tree.sha')"
-                TREE_SHA="$(gh api --method POST "repos/$GITHUB_REPO/git/trees" \
-                    -f base_tree="$BASE_TREE" \
-                    -f "tree[][path]=$STAGE8N_REQUEST_PATH" \
-                    -f "tree[][mode]=100644" \
-                    -f "tree[][type]=blob" \
-                    -f "tree[][sha]=$BLOB_SHA" --jq '.sha')"
-                STAGE8N_REQUEST_COMMIT="$(gh api --method POST "repos/$GITHUB_REPO/git/commits" \
-                    -f message="tb8504: request cloud STAGE8N audit $STAMP" \
-                    -f tree="$TREE_SHA" \
-                    -f "parents[]=$TOOLING_REF" --jq '.sha')"
+                TREE_SHA=""
+                STAGE8N_REQUEST_COMMIT=""
+                if [[ "$BLOB_SHA" =~ ^[0-9a-f]{40}$ ]] && \
+                   [[ "$BASE_TREE" =~ ^[0-9a-f]{40}$ ]]; then
+                    # gh api -f tree[][path]/tree[][mode]/... creates separate
+                    # array entries, not one Git Tree item. Submit one JSON
+                    # object with the complete tree entry via --input instead.
+                    TREE_SHA="$(
+                        python3 -c 'import json,sys; base,path,blob=sys.argv[1:]; print(json.dumps({"base_tree":base,"tree":[{"path":path,"mode":"100644","type":"blob","sha":blob}]}))' \
+                            "$BASE_TREE" "$STAGE8N_REQUEST_PATH" "$BLOB_SHA" |
+                        gh api --method POST "repos/$GITHUB_REPO/git/trees" \
+                            --input - --jq '.sha'
+                    )"
+                fi
+                if [[ "$TREE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+                    STAGE8N_REQUEST_COMMIT="$(gh api --method POST "repos/$GITHUB_REPO/git/commits" \
+                        -f message="tb8504: request cloud STAGE8N audit $STAMP" \
+                        -f tree="$TREE_SHA" \
+                        -f "parents[]=$TOOLING_REF" --jq '.sha')"
+                fi
 
-                if [ -z "$BLOB_SHA" ] || [ -z "$BASE_TREE" ] || [ -z "$TREE_SHA" ] || [ -z "$STAGE8N_REQUEST_COMMIT" ]; then
+                if [[ ! "$BLOB_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+                   [[ ! "$BASE_TREE" =~ ^[0-9a-f]{40}$ ]] || \
+                   [[ ! "$TREE_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+                   [[ ! "$STAGE8N_REQUEST_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
                     fail "failed to construct immutable STAGE8N request commit"
                 else
                     gh api --method PATCH "repos/$GITHUB_REPO/git/refs/heads/$GITHUB_TARGET" \
