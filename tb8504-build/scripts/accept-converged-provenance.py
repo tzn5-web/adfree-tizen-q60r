@@ -7,6 +7,8 @@ hash-verified cloud seed after the STAGE8N source/runtime gates have passed.
 from __future__ import annotations
 
 import argparse
+import io
+import tarfile
 import hashlib
 import json
 import re
@@ -275,10 +277,32 @@ def main() -> int:
                 "patch_sha256": patch_sha,
                 "untracked_manifest_sha256": untracked_sha,
             }
+        elif mode == "absent":
+            # Device-local GNSS is protected by the device HEAD/patch/untracked
+            # provenance and the GitHub reconstruction+tar equality gates.
+            if gps.get("exists") is not False or gps.get("is_dir") is not False:
+                die("absent GPS provenance has inconsistent filesystem flags")
+            projects = workspace.get("projects", [])
+            if any(p.get("path") == GPS_PATH for p in projects):
+                die("external GPS repo present in workspace but declared absent")
+            with tarfile.open(
+                fileobj=io.BytesIO(z.read("device_lenovo_TB8504.tar.gz")),
+                mode="r:gz",
+            ) as tf:
+                names = {m.name for m in tf.getmembers() if m.isfile()}
+            required = {
+                "TB8504/gps/android/Android.mk",
+                "TB8504/gps/core/Android.mk",
+                "TB8504/gps/utils/Android.mk",
+            }
+            if not required.issubset(names):
+                die("bundled GNSS source incomplete in device tar")
+            gps_contract = {
+                "mode": "absent",
+                "source": "device/lenovo/TB8504/gps",
+            }
         else:
-            die(
-                f"GPS provenance must be git-backed before promotion: {mode!r}"
-            )
+            die(f"unsupported GPS provenance mode: {mode!r}")
 
     contracts["gps_repo"] = gps_contract
     for rel in PRIMARY:
