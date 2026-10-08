@@ -2260,7 +2260,7 @@ def static_self_test() -> None:
         "workspace_revision_fingerprint",
         "verify_untracked_seed",
         "untracked seed coverage mismatch",
-        "GPS provenance must be git-backed before promotion",
+        "bundled GNSS source incomplete in device tar",
     ):
         if guard not in provenance_text:
             raise RuntimeError(
