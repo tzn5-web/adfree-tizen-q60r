@@ -354,10 +354,29 @@ def audit_provenance(z: zipfile.ZipFile) -> tuple[dict, dict, dict, dict]:
         ):
             if not re.fullmatch(rx, str(gps.get(key, ""))):
                 fail(f"GPS provenance invalid {key}")
+    elif mode == "absent":
+        # In the TB8504 tree GNSS is bundled in the device Git repository.
+        # The device tar is already audited and later reconstructed from
+        # exactly the approved device HEAD + patch + untracked provenance.
+        if gps.get("exists") is not False or gps.get("is_dir") is not False:
+            fail("absent external GPS provenance has inconsistent filesystem flags")
+        if gps["path"] in seen:
+            fail("external GPS project present in workspace but declared absent")
+        with tarfile.open(
+            fileobj=io.BytesIO(z.read("device_lenovo_TB8504.tar.gz")),
+            mode="r:gz",
+        ) as tf:
+            names = {m.name for m in tf.getmembers() if m.isfile()}
+        expected_gnss = {
+            "TB8504/gps/android/Android.mk",
+            "TB8504/gps/core/Android.mk",
+            "TB8504/gps/utils/Android.mk",
+        }
+        if not expected_gnss.issubset(names):
+            fail("external GPS absent but bundled device GNSS sources missing")
+        print("GPS_BUNDLED_IN_DEVICE_PROVENANCE=PASS")
     else:
-        fail(
-            f"GPS provenance must be git-backed in canonical v2 seed: {mode!r}"
-        )
+        fail(f"unsupported GPS provenance mode in canonical v2 seed: {mode!r}")
 
     expected_primary = {"device/lenovo/TB8504", "vendor/lenovo/TB8504"}
     if set(primary) != expected_primary:
@@ -890,8 +909,11 @@ def main() -> int:
                 f"missing={missing_metadata} undeclared={undeclared_metadata}"
             )
 
-        if "hardware/qcom-caf/msm8996/gps" not in head_set:
-            fail("GPS/LOC repository was declared but not actually captured")
+        if gps_provenance.get("mode") == "git":
+            if "hardware/qcom-caf/msm8996/gps" not in head_set:
+                fail("GPS/LOC git repository was declared but not captured")
+        elif "hardware/qcom-caf/msm8996/gps" in head_set:
+            fail("external GPS repo exported despite absent-mode provenance")
 
         missing_repo_artifacts = []
         for rel in sorted(exported_set):
