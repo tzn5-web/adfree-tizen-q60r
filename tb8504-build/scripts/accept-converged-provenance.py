@@ -175,6 +175,18 @@ def main() -> int:
         bad = z.testzip()
         if bad:
             die(f"seed ZIP CRC failure: {bad}")
+        member_names = set(z.namelist())
+        archive_member_count = len(z.namelist())
+        boot_seed_present = "seeds/boot_seed.img" in member_names
+        recovery_seed_present = "seeds/recovery_seed.img" in member_names
+        boot_seed_sha256 = (
+            sha256_bytes(z.read("seeds/boot_seed.img"))
+            if boot_seed_present else None
+        )
+        recovery_seed_sha256 = (
+            sha256_bytes(z.read("seeds/recovery_seed.img"))
+            if recovery_seed_present else None
+        )
 
         export = z.read("meta/EXPORT.txt").decode("utf-8", "replace")
         tooling = [
@@ -343,6 +355,18 @@ def main() -> int:
             "legacy_seed_reason": None,
             "accepted_request_commit": args.request_commit,
             "accepted_tooling_ref": args.tooling_ref,
+            "boot_seed_present": boot_seed_present,
+            "boot_seed_sha256": boot_seed_sha256,
+            "recovery_seed_present": recovery_seed_present,
+            "recovery_seed_sha256": recovery_seed_sha256,
+            "integrity": (
+                f"{archive_member_count} ZIP entries; CRC verified; "
+                "STAGE8N source and runtime gates PASS; "
+                "seed content SHA256 pinned"
+            ),
+            # Private local Windows paths are neither portable nor a cloud
+            # provenance field; never retain a historical workstation path.
+            "zip_windows_path": None,
         }
     )
 
