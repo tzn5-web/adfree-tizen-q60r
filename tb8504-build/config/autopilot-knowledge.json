@@ -123,17 +123,18 @@
     "accepted_request_commit": "937eaf245acc2d3505f91e027619a5d664b6c64a",
     "accepted_tooling_ref": "f71aa6ca65264b0b1421bd479c57afc52a4b2cab",
     "boot_seed_present": true,
-    "boot_seed_sha256": "09432d14b103881fe9d4940edf2175a7ec7118aea7dcda87cf33f38b6254bac3",
+    "boot_seed_sha256": "cbc866aa401eb73509a731b0dd0e977519032cd2c8821949a4500e9f9494f9d7",
     "coverage": "COMPLETE_FOR_BUILD_PROVENANCE",
     "coverage_blocker": null,
-    "integrity": "97 ZIP entries; testzip clean; 96/96 SHA256SUMS verified; no credential-pattern findings",
+    "integrity": "105 ZIP members; 104/104 SHA256SUMS verified; archive and provenance audit PASS; STAGE8N source/runtime gates PASS",
     "legacy_seed_only": false,
     "legacy_seed_reason": null,
-    "recovery_seed_present": false,
+    "recovery_seed_present": true,
     "release_tag": "tb8504-cloud-seed-20261008_210235",
     "required_format_version": 2,
     "zip_sha256": "4331a611c8fd042da4e2953781d7626e3bbe19a5842d1f0edd4b7f92f77c0359",
-    "zip_windows_path": "C:\\Users\\ion94\\Desktop\\TB8504_CLOUD_SEED_20261007_082702.zip"
+    "zip_windows_path": null,
+    "recovery_seed_sha256": "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725ddd91cb8e61"
   },
   "generated_from_audited_history": "2026-10-07",
   "historical_stage8n": {
