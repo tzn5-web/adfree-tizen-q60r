@@ -1,81 +1,181 @@
 {
-  "schema_version": 1,
-  "project": "Lenovo TB8504 Android 16 / LineageOS 23.2 staged bring-up",
-  "generated_from_audited_history": "2026-10-07",
-  "safety_contract": {
-    "no_adb": true,
-    "no_fastboot": true,
-    "no_flash": true,
-    "no_device_block_writes": true,
-    "no_clean": true,
-    "no_installclean": true,
-    "no_clobber": true,
-    "no_private_signing_key_export": true,
-    "unknown_error_policy": "STOP_WITH_DIAGNOSTIC_BUNDLE",
-    "known_error_policy": "APPLY_ONLY_PREVALIDATED_HANDLER_THEN_REAUDIT"
+  "audit_hardening_current": {
+    "artifact_binding": [
+      "boot/recovery/system/vendor/ROM state is bound to SOURCE_FINGERPRINT plus SHA256",
+      "a successful mka target may not re-bind a stale artifact unless the produced file is demonstrably refreshed",
+      "bacon applies the same stale-output refresh requirement to boot/recovery/system when their bindings are stale"
+    ],
+    "build_metadata": "Source-only converge never trusts stale module-info.json. Every build goal runs AOSP refreshmod and re-audits runtime contracts before compiling images.",
+    "final_ota": [
+      "ZIP CRC and safe paths",
+      "TB8504 pre-device aliases",
+      "post-build fingerprint and SDK",
+      "boot/recovery binding",
+      "block OTA transfer-list syntax",
+      "system.new.dat(.br/.xz) new/zero blocks bound to staged system.img",
+      "payload.bin and super.img are forbidden because TB8504 is legacy static non-A/B"
+    ],
+    "final_system": [
+      "partition size and sparse-header contract",
+      "simg2img materialization when sparse",
+      "ext filesystem magic",
+      "e2fsck -f -n must return clean",
+      "actual installed ELF DT_NEEDED graph and bitness",
+      "host checkvintf --check-compat",
+      "built low-end graphics properties",
+      "all installed vendor ELF consumers are re-audited against bitness-correct providers, not only PRODUCT_COPY_FILES entries",
+      "host checkvintf receives ro.product.first_api_level=25 and the built kernel release + .config so kernel VINTF requirements are not skipped"
+    ],
+    "local_boot_recovery": [
+      "required TB8504/msm8937 kernel config",
+      "forced module-signing config",
+      "expected TB8504 DTB present and embedded",
+      "hardware-critical boot cmdline tokens",
+      "kernel payload equals local Image.gz-dtb",
+      "module signer/vermagic coherence"
+    ],
+    "provenance": [
+      "untracked provenance includes Unix mode and exact byte coverage",
+      "device and vendor are reconstructed from provenance rather than trusted as opaque exported state",
+      "static source provenance closes audit-to-export TOCTOU"
+    ]
   },
-  "workspace": {
-    "default_root": "/home/dre/android16-tb8504/lineage-23.2",
-    "product_out": "out/target/product/TB8504",
-    "device_tree": "device/lenovo/TB8504",
-    "vendor_tree": "vendor/lenovo/TB8504",
-    "kernel_tree": "kernel/lenovo/msm8917"
-  },
-  "release_identity": {
-    "product": "lineage_TB8504",
-    "release": "trunk_staging",
-    "variant": "userdebug",
-    "platform": "Android 16",
-    "platform_sdk": 36,
-    "lineage": "23.2",
-    "reason": "Android 16 lunch requires product/release/variant. bp1a configured the wrong platform state and previously triggered SDK/config incompatibility."
-  },
-  "source_baselines": {
-    "device": {
-      "repo": "TB8504/device_lenovo_TB8504-old",
-      "sha": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b"
+  "autopilot_policy": {
+    "converge_side_effects": [
+      "source transforms and audits only",
+      "no Android target build",
+      "no device access",
+      "automatic audited cloud seed v2 export",
+      "optional --upload-seed handoff through the same tb8504-autopilot.py entry point",
+      "when upload is selected, the STAGE8N request commit is parented directly to TOOLING_REF and the branch update must be fast-forward",
+      "after every STAGE8N gate passes, GitHub promotes the captured GPS/device/vendor/workspace provenance into autopilot-knowledge.json with a fast-forward-only commit"
+    ],
+    "default_goal": "next",
+    "final_authority": "Actual built output plus post-build audits; never source audit alone.",
+    "provenance_hardening": [
+      "converge captures workspace, GPS, device/vendor and static build-critical repository provenance before seed handoff",
+      "seed audit binds device/vendor/GPS untracked files by path, byte SHA256, size and Unix mode; untracked symlinks are rejected",
+      "STAGE8N reconstructs device and vendor from approved baseline HEAD + tracked patch + untracked files and verifies exact git status",
+      "device tar must match the provenance-reconstructed device tree including file type, mode, size and content",
+      "static build-critical repository provenance is bound to exported patch bytes and rechecked against approved knowledge contracts before promotion",
+      "provenance promotion is allowed only after all STAGE8N gates pass and while the branch still points at the immutable request commit",
+      "GPS provenance captures a Git worktree when present; when absent, the device tar must contain the bundled GNSS source and is bound to reconstructed device HEAD/patch/untracked provenance"
+    ],
+    "retry_policy": {
+      "max_build_attempts_per_target": 3,
+      "max_same_handler_uses": 1,
+      "never_retry_unknown_error": true
     },
-    "vendor": {
-      "repo": "TB8504/vendor_lenovo_TB8504",
-      "sha": "34690afc7eff4fc5223f4f2882c2054fcddcf986"
+    "seed_handoff_contract": {
+      "branch_update": "fast-forward only",
+      "draft_release_only": true,
+      "explicit_upload_flag": "--upload-seed",
+      "no_build": true,
+      "no_device_access": true,
+      "post_stage8n_provenance_promotion": true,
+      "promotion_requires": [
+        "seed SHA256 and ZIP integrity PASS",
+        "seed TOOLING_REF equals the request commit parent",
+        "workspace fingerprint recomputes from the full project inventory",
+        "GPS and device/vendor provenance is structurally valid and bound to exported patch data",
+        "all STAGE8N source/runtime/residual/product/performance gates PASS",
+        "branch HEAD still equals the STAGE8N request commit"
+      ],
+      "promotion_target": "source_integrity_contracts.gps_repo + dynamic_primary_repos + workspace_repo_contract",
+      "request_commit_parent": "TOOLING_REF",
+      "seed_metadata_requires_tooling_ref": true,
+      "single_entry_point": "tb8504-build/scripts/tb8504-autopilot.py",
+      "valid_goal": "converge"
     },
-    "kernel": {
-      "repo": "lenovo-msm8917/kernel_lenovo_msm8917",
-      "ref": "lineage-21.0",
-      "sha": "d242d540d9f5328919e189235e74e433418f6d81",
-      "defconfig": "lineageos_tb8504_defconfig",
-      "toolchain": "Lineage GCC aarch64 4.9",
-      "toolchain_sha": "5e030eafe024784a73cdf47e6936ac0dbfc763dc"
+    "single_entry_point": "tb8504-build/scripts/tb8504-autopilot.py",
+    "stage_order": [
+      "source_convergence",
+      "performance_source_contract",
+      "source_only_runtime_contracts",
+      "release_identity",
+      "refresh_module_metadata_before_build",
+      "boot",
+      "recovery",
+      "detect_partition_topology",
+      "vendor_if_real_partition",
+      "system",
+      "full_rom",
+      "postbuild_output_audit",
+      "final_package_semantic_audit"
+    ],
+    "supported_goals": [
+      "converge",
+      "boot",
+      "recovery",
+      "next",
+      "system",
+      "rom"
+    ],
+    "tooling_ci_gate": {
+      "binding": "exact TOOLING_REF SHA",
+      "policy": "Every local autopilot run refuses tooling that has not passed the lint workflow at the exact immutable GitHub commit.",
+      "required_conclusion": "success",
+      "required_status": "completed",
+      "workflow": "TB8504 cloud lane lint"
     }
   },
-  "partition_contract": {
-    "boot_bytes": 67108864,
-    "recovery_bytes": 67108864,
-    "system_bytes": 4080218112,
-    "userdata_bytes": 9921059840,
-    "page_size": 2048,
-    "kernel_addr": "0x80008000",
-    "ramdisk_addr": "0x81000000",
-    "tags_addr": "0x80000100",
-    "boot_header_version": 0,
-    "vendor_partition_assumption": "DO_NOT_ASSUME",
-    "vendor_topology_observation": "Baseline BoardConfigVendor.mk is empty and fstab.qcom has no /vendor mount. Detect actual build topology before attempting vendorimage; vendor may live under /system/vendor."
-  },
   "cloud_seed": {
-    "release_tag": "tb8504-cloud-seed-20261007_082702",
-    "zip_sha256": "cb229cf709ba3ba66f0a4bb18678923730e421b2dfe4223d59d22d74bf719651",
-    "zip_windows_path": "C:\\Users\\ion94\\Desktop\\TB8504_CLOUD_SEED_20261007_082702.zip",
+    "accepted_request_commit": "937eaf245acc2d3505f91e027619a5d664b6c64a",
+    "accepted_tooling_ref": "f71aa6ca65264b0b1421bd479c57afc52a4b2cab",
     "boot_seed_present": true,
-    "recovery_seed_present": false,
     "boot_seed_sha256": "09432d14b103881fe9d4940edf2175a7ec7118aea7dcda87cf33f38b6254bac3",
+    "coverage": "COMPLETE_FOR_BUILD_PROVENANCE",
+    "coverage_blocker": null,
     "integrity": "97 ZIP entries; testzip clean; 96/96 SHA256SUMS verified; no credential-pattern findings",
-    "coverage": "INCOMPLETE_FOR_FINAL_PROVENANCE",
-    "coverage_blocker": "hardware/qcom-caf/msm8996/gps was listed in EXPORTED_REPOS but absent from REPOS metadata and per-repo patch/status/mbox; exporter/auditor are now hardened and the next seed must capture it.",
+    "legacy_seed_only": false,
+    "legacy_seed_reason": null,
+    "recovery_seed_present": false,
+    "release_tag": "tb8504-cloud-seed-20261008_210235",
     "required_format_version": 2,
-    "legacy_seed_only": true,
-    "legacy_seed_reason": "Historical seed predates complete GPS/workspace provenance and v2 requested/missing-repo metadata. Generate a new v2 seed from the current autopilot converge goal."
+    "zip_sha256": "4331a611c8fd042da4e2953781d7626e3bbe19a5842d1f0edd4b7f92f77c0359",
+    "zip_windows_path": "C:\\Users\\ion94\\Desktop\\TB8504_CLOUD_SEED_20261007_082702.zip"
   },
+  "generated_from_audited_history": "2026-10-07",
+  "historical_stage8n": {
+    "cloud_converged": {
+      "gnss_bad_edges": 0,
+      "latest_head": "df9f18645ab3b19a8a5db6494bd914c80bda857d",
+      "latest_run": 17,
+      "unresolved_edges": 0,
+      "unresolved_unique_libs": 0,
+      "wrong_bitness_edges": 0,
+      "wrong_bitness_unique_libs": 0
+    },
+    "old_local": {
+      "dt_needed_edges": 5448,
+      "hard_failures": 46,
+      "resolved_edges": 5402,
+      "unresolved_edges": 44,
+      "unresolved_unique_libs": 11,
+      "wrong_bitness_edges": 2,
+      "wrong_bitness_unique_libs": 2
+    }
+  },
+  "historical_vintf_blockers": [
+    "android.hardware.audio.effect@5.0",
+    "android.hardware.audio@5.0",
+    "android.hardware.configstore@1.1",
+    "android.hardware.light@2.0",
+    "android.hardware.power@1.0",
+    "android.hardware.radio.deprecated@1.0 IOemHook slot1/slot2",
+    "android.hardware.vibrator@1.0",
+    "vendor.lineage.power@1.0",
+    "vendor.qti.hardware.perf@1.0"
+  ],
   "kernel_and_module_history": {
+    "accepted_local_dirty_state": [
+      "scripts/sign-file legacy Perl compatibility parser modification",
+      "include/sound/Kbuild untracked with header-y += voice_params.h"
+    ],
+    "cloud_old_vermagic": "3.18.140-lineageos-gd242d540 SMP preempt mod_unload modversions aarch64",
+    "cloud_signing_cert_sha256": "cd49fdafb443c85d25455057facc2df96d7053a7f823174e7d9f92bb09cd8d3d",
+    "cloud_signing_ski": "86a8b09f3f6d48a9900168becc64b66e34c70e89",
+    "critical_decision": "Never replace the local boot kernel/modules with cloud-built kernel/modules and never weaken signing coherence. Canonical final build is local so kernel and modules are built/signed together.",
     "expected_module_count": 12,
     "expected_modules": [
       "ansi_cprng.ko",
@@ -91,52 +191,153 @@
       "ufs_test.ko",
       "wil6210.ko"
     ],
-    "accepted_local_dirty_state": [
-      "scripts/sign-file legacy Perl compatibility parser modification",
-      "include/sound/Kbuild untracked with header-y += voice_params.h"
-    ],
     "local_old_vermagic": "3.18.140-lineageos-gd242d540d9f5-dirty SMP preempt mod_unload modversions aarch64",
-    "cloud_old_vermagic": "3.18.140-lineageos-gd242d540 SMP preempt mod_unload modversions aarch64",
-    "local_signing_cert_sha256": "4b4c8c18a0110a17079e0ccba2fd8708ef7eaf09e5aad628e319e8262cbb8a8c",
-    "local_signing_ski": "5bacf37874921e41fb7d21544f76bb2e2bdf9eaf",
     "local_signer": "Magrathea: Glacier signing key",
-    "cloud_signing_cert_sha256": "cd49fdafb443c85d25455057facc2df96d7053a7f823174e7d9f92bb09cd8d3d",
-    "cloud_signing_ski": "86a8b09f3f6d48a9900168becc64b66e34c70e89",
-    "critical_decision": "Never replace the local boot kernel/modules with cloud-built kernel/modules and never weaken signing coherence. Canonical final build is local so kernel and modules are built/signed together."
+    "local_signing_cert_sha256": "4b4c8c18a0110a17079e0ccba2fd8708ef7eaf09e5aad628e319e8262cbb8a8c",
+    "local_signing_ski": "5bacf37874921e41fb7d21544f76bb2e2bdf9eaf"
   },
-  "historical_vintf_blockers": [
-    "android.hardware.audio.effect@5.0",
-    "android.hardware.audio@5.0",
-    "android.hardware.configstore@1.1",
-    "android.hardware.light@2.0",
-    "android.hardware.power@1.0",
-    "android.hardware.radio.deprecated@1.0 IOemHook slot1/slot2",
-    "android.hardware.vibrator@1.0",
-    "vendor.lineage.power@1.0",
-    "vendor.qti.hardware.perf@1.0"
-  ],
-  "historical_stage8n": {
-    "old_local": {
-      "dt_needed_edges": 5448,
-      "resolved_edges": 5402,
-      "unresolved_edges": 44,
-      "unresolved_unique_libs": 11,
-      "wrong_bitness_edges": 2,
-      "wrong_bitness_unique_libs": 2,
-      "hard_failures": 46
+  "known_build_failures_and_fixes": [
+    {
+      "cause": "Running Android envsetup under set -u",
+      "fix": "Disable nounset before sourcing build/envsetup.sh; retain -e and pipefail outside envsetup.",
+      "symptom": "build/envsetup.sh: TOP: unbound variable"
     },
-    "cloud_converged": {
-      "unresolved_edges": 0,
-      "unresolved_unique_libs": 0,
-      "wrong_bitness_edges": 0,
-      "wrong_bitness_unique_libs": 0,
-      "gnss_bad_edges": 0,
-      "latest_run": 17,
-      "latest_head": "df9f18645ab3b19a8a5db6494bd914c80bda857d"
+    {
+      "cause": "Android 16 lunch format requires product, release, variant",
+      "fix": "lunch lineage_TB8504 trunk_staging userdebug",
+      "symptom": "Invalid lunch combo: lineage_TB8504-userdebug"
+    },
+    {
+      "cause": "Wrong release config selection",
+      "fix": "Pin trunk_staging and verify PLATFORM_SDK_VERSION=36, PLATFORM_VERSION=16*, LINEAGE_VERSION=23.2-*.",
+      "symptom": "bp1a selected and SDK/platform configuration mismatch"
+    },
+    {
+      "cause": "Legacy PRODUCT_BUILD_PROP_OVERRIDES key rejected by Android 16 gen_build_prop",
+      "fix": "Migrate PRIVATE_BUILD_DESC to BuildDesc.",
+      "symptom": "Key \"PRIVATE_BUILD_DESC\" isn't a valid prop override"
+    },
+    {
+      "cause": "Legacy product build override name",
+      "fix": "Migrate TARGET_DEVICE to DeviceName while preserving stock BUILD_FINGERPRINT.",
+      "symptom": "TARGET_DEVICE legacy product override"
+    },
+    {
+      "cause": "Old helper was not idempotent and local runner was pinned to an obsolete tooling ref",
+      "fix": "Use current idempotent helper set and prove second-run ALREADY_APPLIED/CHANGED_FILES=0.",
+      "symptom": "Residual cleanup fails on WfdService/WfdCommon found 0 on a second run"
+    },
+    {
+      "cause": "Escaped shell expansion leaked into generated runner",
+      "fix": "Reject runner/tool files containing unintended escaped shell expansions; lint with bash -n.",
+      "symptom": "Runner prints literal ${1:-...} or ${PIPESTATUS[0]}"
+    },
+    {
+      "classification": "WARNING_UNLESS_MODULE_AUDIT_FAILS",
+      "fix": "Do not fail solely on those warnings. Require expected 12 .ko set, modules.dep, coherent module signatures, and image/kernel match.",
+      "symptom": "depmod warnings for modules.order/modules.builtin/modules.builtin.modinfo under depmod_vendor_intermediates/lib/modules/0.0"
+    },
+    {
+      "cause": "Cloud kernel/modules were signed with a different certificate than the local canonical build",
+      "fix": "Do not weaken signing gate. Build canonical kernel/modules/images together locally.",
+      "symptom": "Cloud boot repack signing mismatch"
+    },
+    {
+      "cause": "Using full ROM build as an intermediate diagnostic",
+      "fix": "Build staged targets and audit each layer first; run bacon only after staged gates pass.",
+      "symptom": "Full mka bacon takes hours and exposes errors late"
+    },
+    {
+      "cause": "module-info.json is cached build metadata and may describe the previous source state",
+      "fix": "Converge uses source-only runtime evidence. Build goals run AOSP refreshmod and then repeat the runtime audit with fresh module-info.json.",
+      "symptom": "Stale module-info.json can survive source transforms"
+    },
+    {
+      "cause": "Newer device-tree properties enabled SurfaceFlinger blur capability while carrying mixed-generation graphics tuning",
+      "fix": "Set ro.surface_flinger.supports_background_blur=0, remove stale debug.sf.disable_backpressure, retain proven Android-10-era Qualcomm graphics settings until hardware frame-timing evidence says otherwise.",
+      "symptom": "Android 16 tree advertises background blur on low-end TB8504"
+    },
+    {
+      "cause": "Ninja can report the requested target up to date even when the autopilot source fingerprint changed or a dependency edge was missed",
+      "fix": "Capture pre-build SHA256/size/mtime and refuse source re-binding when a stale boot/recovery/system/vendor artifact was not actually refreshed.",
+      "symptom": "mka returns success while a stale target image remains unchanged"
+    },
+    {
+      "cause": "checkvintf omits runtime kernel requirements unless --kernel receives the built kernel release and config",
+      "fix": "Require ro.product.first_api_level=25 and run checkvintf with the built KERNEL_OBJ release plus .config.",
+      "symptom": "checkvintf passes while kernel requirements are silently skipped"
     }
+  ],
+  "partition_contract": {
+    "boot_bytes": 67108864,
+    "boot_header_version": 0,
+    "kernel_addr": "0x80008000",
+    "page_size": 2048,
+    "ramdisk_addr": "0x81000000",
+    "recovery_bytes": 67108864,
+    "system_bytes": 4080218112,
+    "tags_addr": "0x80000100",
+    "userdata_bytes": 9921059840,
+    "vendor_partition_assumption": "DO_NOT_ASSUME",
+    "vendor_topology_observation": "Baseline BoardConfigVendor.mk is empty and fstab.qcom has no /vendor mount. Detect actual build topology before attempting vendorimage; vendor may live under /system/vendor."
+  },
+  "performance_contract": {
+    "background_blur_support": false,
+    "inherited_android10_graphics_props_preserved": [
+      "debug.egl.hw=0",
+      "debug.sf.hw=0",
+      "debug.hwui.use_buffer_age=false"
+    ],
+    "memory_model": {
+      "CONFIG_ANDROID_LOW_MEMORY_KILLER": "y",
+      "CONFIG_MEMCG": "n",
+      "CONFIG_SWAP": "y",
+      "CONFIG_ZRAM": "y",
+      "PSI": "unavailable",
+      "decision": "Do not force modern PSI/memcg lmkd without a deliberate kernel backport.",
+      "kernel": "3.18 legacy Android lowmemorykiller"
+    },
+    "rationale": "Keep the Android-10-era Qualcomm CPU/ZRAM/LMK tuning that was already known-good, while disabling Android 16 blur capability and removing only a SurfaceFlinger property no longer consumed by Android 16.",
+    "retained_low_end_props": {
+      "ro.config.avoid_gfx_accel": "true"
+    },
+    "stale_surfaceflinger_props_removed": [
+      "debug.sf.disable_backpressure"
+    ],
+    "target": "Snapdragon 425 / 2 GB low-end Android 16"
+  },
+  "project": "Lenovo TB8504 Android 16 / LineageOS 23.2 staged bring-up",
+  "release_identity": {
+    "lineage": "23.2",
+    "platform": "Android 16",
+    "platform_sdk": 36,
+    "product": "lineage_TB8504",
+    "reason": "Android 16 lunch requires product/release/variant. bp1a configured the wrong platform state and previously triggered SDK/config incompatibility.",
+    "release": "trunk_staging",
+    "variant": "userdebug"
   },
   "runtime_cleanup_history": {
-    "new_cleanup_removed_services_count": 25,
+    "camera": {
+      "cleared_stale_sepolicy": "device/lenovo/TB8504/sepolicy/mm-qcamerad.te",
+      "removed_process_sdk_override": "/vendor/bin/mm-qcamera-daemon=23",
+      "runtime_model": "legacy standalone camera daemon removed; camera HAL runs in-process"
+    },
+    "ims": {
+      "executables": [
+        "imsqmidaemon",
+        "imsdatadaemon",
+        "ims_rtp_daemon",
+        "imsrcsd"
+      ],
+      "reason": "The old cleanup removed init definitions even though proprietary executables and runtime/VINTF contracts were still present.",
+      "restored_services": [
+        "vendor.imsqmidaemon",
+        "vendor.imsdatadaemon",
+        "vendor.ims_rtp_daemon",
+        "vendor.imsrcsservice"
+      ],
+      "selinux_baseline_verified": true
+    },
     "new_cleanup_removed_services": [
       "iop",
       "vendor.qmuxd",
@@ -164,21 +365,19 @@
       "gamed",
       "hbtp"
     ],
+    "new_cleanup_removed_services_count": 25,
     "old_stage8l12_observation": "Backups showed a broader historical removal set (~70 services), so absence must never be inferred solely from the old no-install-rule audit.",
-    "camera": {
-      "removed_process_sdk_override": "/vendor/bin/mm-qcamera-daemon=23",
-      "cleared_stale_sepolicy": "device/lenovo/TB8504/sepolicy/mm-qcamerad.te",
-      "runtime_model": "legacy standalone camera daemon removed; camera HAL runs in-process"
-    },
+    "shell_syntax_gate": "All transformed rootdir shell scripts must pass bash -n.",
+    "stale_control_references_removed": 15,
     "wfd": {
-      "removed_vintf_hal": "com.qualcomm.qti.wifidisplayhal",
-      "removed_modules": [
-        "WfdService",
-        "WfdCommon"
-      ],
       "disabled_framework_flags": [
         "config_enableWifiDisplay",
         "config_wifiDisplaySupportsProtectedBuffers"
+      ],
+      "reason": "Java/app remnants were left after backend removal and were not visible to ELF-only audits.",
+      "removed_modules": [
+        "WfdService",
+        "WfdCommon"
       ],
       "removed_stale_policy": [
         "com.qualcomm.wfd.client hidden-api whitelist",
@@ -187,225 +386,87 @@
         "persist.sys.wfd.virtual",
         "fstman.ini copy"
       ],
-      "reason": "Java/app remnants were left after backend removal and were not visible to ELF-only audits."
-    },
-    "ims": {
-      "restored_services": [
-        "vendor.imsqmidaemon",
-        "vendor.imsdatadaemon",
-        "vendor.ims_rtp_daemon",
-        "vendor.imsrcsservice"
-      ],
-      "executables": [
-        "imsqmidaemon",
-        "imsdatadaemon",
-        "ims_rtp_daemon",
-        "imsrcsd"
-      ],
-      "reason": "The old cleanup removed init definitions even though proprietary executables and runtime/VINTF contracts were still present.",
-      "selinux_baseline_verified": true
-    },
-    "stale_control_references_removed": 15,
-    "shell_syntax_gate": "All transformed rootdir shell scripts must pass bash -n."
-  },
-  "known_build_failures_and_fixes": [
-    {
-      "symptom": "build/envsetup.sh: TOP: unbound variable",
-      "cause": "Running Android envsetup under set -u",
-      "fix": "Disable nounset before sourcing build/envsetup.sh; retain -e and pipefail outside envsetup."
-    },
-    {
-      "symptom": "Invalid lunch combo: lineage_TB8504-userdebug",
-      "cause": "Android 16 lunch format requires product, release, variant",
-      "fix": "lunch lineage_TB8504 trunk_staging userdebug"
-    },
-    {
-      "symptom": "bp1a selected and SDK/platform configuration mismatch",
-      "cause": "Wrong release config selection",
-      "fix": "Pin trunk_staging and verify PLATFORM_SDK_VERSION=36, PLATFORM_VERSION=16*, LINEAGE_VERSION=23.2-*."
-    },
-    {
-      "symptom": "Key \"PRIVATE_BUILD_DESC\" isn't a valid prop override",
-      "cause": "Legacy PRODUCT_BUILD_PROP_OVERRIDES key rejected by Android 16 gen_build_prop",
-      "fix": "Migrate PRIVATE_BUILD_DESC to BuildDesc."
-    },
-    {
-      "symptom": "TARGET_DEVICE legacy product override",
-      "cause": "Legacy product build override name",
-      "fix": "Migrate TARGET_DEVICE to DeviceName while preserving stock BUILD_FINGERPRINT."
-    },
-    {
-      "symptom": "Residual cleanup fails on WfdService/WfdCommon found 0 on a second run",
-      "cause": "Old helper was not idempotent and local runner was pinned to an obsolete tooling ref",
-      "fix": "Use current idempotent helper set and prove second-run ALREADY_APPLIED/CHANGED_FILES=0."
-    },
-    {
-      "symptom": "Runner prints literal ${1:-...} or ${PIPESTATUS[0]}",
-      "cause": "Escaped shell expansion leaked into generated runner",
-      "fix": "Reject runner/tool files containing unintended escaped shell expansions; lint with bash -n."
-    },
-    {
-      "symptom": "depmod warnings for modules.order/modules.builtin/modules.builtin.modinfo under depmod_vendor_intermediates/lib/modules/0.0",
-      "classification": "WARNING_UNLESS_MODULE_AUDIT_FAILS",
-      "fix": "Do not fail solely on those warnings. Require expected 12 .ko set, modules.dep, coherent module signatures, and image/kernel match."
-    },
-    {
-      "symptom": "Cloud boot repack signing mismatch",
-      "cause": "Cloud kernel/modules were signed with a different certificate than the local canonical build",
-      "fix": "Do not weaken signing gate. Build canonical kernel/modules/images together locally."
-    },
-    {
-      "symptom": "Full mka bacon takes hours and exposes errors late",
-      "cause": "Using full ROM build as an intermediate diagnostic",
-      "fix": "Build staged targets and audit each layer first; run bacon only after staged gates pass."
-    },
-    {
-      "symptom": "Stale module-info.json can survive source transforms",
-      "cause": "module-info.json is cached build metadata and may describe the previous source state",
-      "fix": "Converge uses source-only runtime evidence. Build goals run AOSP refreshmod and then repeat the runtime audit with fresh module-info.json."
-    },
-    {
-      "symptom": "Android 16 tree advertises background blur on low-end TB8504",
-      "cause": "Newer device-tree properties enabled SurfaceFlinger blur capability while carrying mixed-generation graphics tuning",
-      "fix": "Set ro.surface_flinger.supports_background_blur=0, remove stale debug.sf.disable_backpressure, retain proven Android-10-era Qualcomm graphics settings until hardware frame-timing evidence says otherwise."
-    },
-    {
-      "symptom": "mka returns success while a stale target image remains unchanged",
-      "cause": "Ninja can report the requested target up to date even when the autopilot source fingerprint changed or a dependency edge was missed",
-      "fix": "Capture pre-build SHA256/size/mtime and refuse source re-binding when a stale boot/recovery/system/vendor artifact was not actually refreshed."
-    },
-    {
-      "symptom": "checkvintf passes while kernel requirements are silently skipped",
-      "cause": "checkvintf omits runtime kernel requirements unless --kernel receives the built kernel release and config",
-      "fix": "Require ro.product.first_api_level=25 and run checkvintf with the built KERNEL_OBJ release plus .config."
-    }
-  ],
-  "successful_artifacts": {
-    "boot_earlier": {
-      "status": "PASS_BUT_SUPERSEDED_BY_LATER_SOURCE_CHANGES",
-      "build_time": "00:05:00",
-      "note": "Boot passed structural/kernel audit before later IMS/WFD/product-compat source changes. A fresh boot rebuild is required before treating boot as final."
-    },
-    "recovery_current": {
-      "status": "PASS",
-      "built_at_local_report": "/home/dre/TB8504_RECOVERY_STAGE_20261007_111728",
-      "build_time": "00:17:23",
-      "size": 42618880,
-      "sha256": "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725ddd91cb8e61",
-      "kernel_size": 28490895,
-      "kernel_sha256": "6dcb32cde2d172b7e4467cc9015ccb6c292668f2155f1749ac2e186d0c4577fe",
-      "ramdisk_size": 14123257,
-      "kernel_match": true,
-      "fstab_contract": "PASS",
-      "init_contract": "PASS",
-      "header_version": 0,
-      "page_size": 2048,
-      "no_flash": true
+      "removed_vintf_hal": "com.qualcomm.qti.wifidisplayhal"
     }
   },
-  "workflow_history": {
-    "stage8n_strict_latest_known": "SUCCESS_RUN_17_CURRENT_HELPERS_BEFORE_SEED_CAPTURE_HARDENING",
-    "stage8n_idempotency_gate": "SUCCESS",
-    "lint_latest_known": "SUCCESS_RUN_91_PLUS_PENDING_92_AT_AUDIT_TIME",
-    "important_rule": "Source-side PASS is not final authority for produced images. Built artifacts in out/ must be audited after each build."
+  "safety_contract": {
+    "known_error_policy": "APPLY_ONLY_PREVALIDATED_HANDLER_THEN_REAUDIT",
+    "no_adb": true,
+    "no_clean": true,
+    "no_clobber": true,
+    "no_device_block_writes": true,
+    "no_fastboot": true,
+    "no_flash": true,
+    "no_installclean": true,
+    "no_private_signing_key_export": true,
+    "unknown_error_policy": "STOP_WITH_DIAGNOSTIC_BUNDLE"
   },
-  "autopilot_policy": {
-    "default_goal": "next",
-    "supported_goals": [
-      "converge",
-      "boot",
-      "recovery",
-      "next",
-      "system",
-      "rom"
-    ],
-    "stage_order": [
-      "source_convergence",
-      "performance_source_contract",
-      "source_only_runtime_contracts",
-      "release_identity",
-      "refresh_module_metadata_before_build",
-      "boot",
-      "recovery",
-      "detect_partition_topology",
-      "vendor_if_real_partition",
-      "system",
-      "full_rom",
-      "postbuild_output_audit",
-      "final_package_semantic_audit"
-    ],
-    "retry_policy": {
-      "max_same_handler_uses": 1,
-      "max_build_attempts_per_target": 3,
-      "never_retry_unknown_error": true
+  "schema_version": 1,
+  "source_baselines": {
+    "device": {
+      "repo": "TB8504/device_lenovo_TB8504-old",
+      "sha": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b"
     },
-    "final_authority": "Actual built output plus post-build audits; never source audit alone.",
-    "single_entry_point": "tb8504-build/scripts/tb8504-autopilot.py",
-    "converge_side_effects": [
-      "source transforms and audits only",
-      "no Android target build",
-      "no device access",
-      "automatic audited cloud seed v2 export",
-      "optional --upload-seed handoff through the same tb8504-autopilot.py entry point",
-      "when upload is selected, the STAGE8N request commit is parented directly to TOOLING_REF and the branch update must be fast-forward",
-      "after every STAGE8N gate passes, GitHub promotes the captured GPS/device/vendor/workspace provenance into autopilot-knowledge.json with a fast-forward-only commit"
-    ],
-    "seed_handoff_contract": {
-      "single_entry_point": "tb8504-build/scripts/tb8504-autopilot.py",
-      "explicit_upload_flag": "--upload-seed",
-      "valid_goal": "converge",
-      "draft_release_only": true,
-      "request_commit_parent": "TOOLING_REF",
-      "branch_update": "fast-forward only",
-      "seed_metadata_requires_tooling_ref": true,
-      "no_build": true,
-      "no_device_access": true,
-      "post_stage8n_provenance_promotion": true,
-      "promotion_requires": [
-        "seed SHA256 and ZIP integrity PASS",
-        "seed TOOLING_REF equals the request commit parent",
-        "workspace fingerprint recomputes from the full project inventory",
-        "GPS and device/vendor provenance is structurally valid and bound to exported patch data",
-        "all STAGE8N source/runtime/residual/product/performance gates PASS",
-        "branch HEAD still equals the STAGE8N request commit"
-      ],
-      "promotion_target": "source_integrity_contracts.gps_repo + dynamic_primary_repos + workspace_repo_contract"
+    "kernel": {
+      "defconfig": "lineageos_tb8504_defconfig",
+      "ref": "lineage-21.0",
+      "repo": "lenovo-msm8917/kernel_lenovo_msm8917",
+      "sha": "d242d540d9f5328919e189235e74e433418f6d81",
+      "toolchain": "Lineage GCC aarch64 4.9",
+      "toolchain_sha": "5e030eafe024784a73cdf47e6936ac0dbfc763dc"
     },
-    "provenance_hardening": [
-      "converge captures workspace, GPS, device/vendor and static build-critical repository provenance before seed handoff",
-      "seed audit binds device/vendor/GPS untracked files by path, byte SHA256, size and Unix mode; untracked symlinks are rejected",
-      "STAGE8N reconstructs device and vendor from approved baseline HEAD + tracked patch + untracked files and verifies exact git status",
-      "device tar must match the provenance-reconstructed device tree including file type, mode, size and content",
-      "static build-critical repository provenance is bound to exported patch bytes and rechecked against approved knowledge contracts before promotion",
-      "provenance promotion is allowed only after all STAGE8N gates pass and while the branch still points at the immutable request commit",
-      "GPS provenance captures a Git worktree when present; when absent, the device tar must contain the bundled GNSS source and is bound to reconstructed device HEAD/patch/untracked provenance"
-    ],
-    "tooling_ci_gate": {
-      "workflow": "TB8504 cloud lane lint",
-      "required_status": "completed",
-      "required_conclusion": "success",
-      "binding": "exact TOOLING_REF SHA",
-      "policy": "Every local autopilot run refuses tooling that has not passed the lint workflow at the exact immutable GitHub commit."
+    "vendor": {
+      "repo": "TB8504/vendor_lenovo_TB8504",
+      "sha": "34690afc7eff4fc5223f4f2882c2054fcddcf986"
     }
   },
   "source_integrity_contracts": {
+    "accepted_provenance": {
+      "release_tag": "tb8504-cloud-seed-20261008_210235",
+      "request_commit": "937eaf245acc2d3505f91e027619a5d664b6c64a",
+      "seed_sha256": "4331a611c8fd042da4e2953781d7626e3bbe19a5842d1f0edd4b7f92f77c0359",
+      "tooling_ref": "f71aa6ca65264b0b1421bd479c57afc52a4b2cab",
+      "workspace_revision_fingerprint": "ca4aba885a55951402ec309efb29c15a22dea5f1a9317d581c2bba446d258827"
+    },
+    "dynamic_primary_repos": {
+      "device/lenovo/TB8504": {
+        "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
+        "post_converge_patch_sha256": "f9e048aec1736e5bdf9aae76bffc313bee2df061903336ce135fa6d49a68befd",
+        "post_converge_untracked_manifest_sha256": "0ecdd88670a3a5cb10d28207e4a831cfd575559b8a9d47ff5f4b1b08dbb08e7b",
+        "status": "PROVENANCE_ACCEPTED_AFTER_STAGE8N"
+      },
+      "vendor/lenovo/TB8504": {
+        "head": "34690afc7eff4fc5223f4f2882c2054fcddcf986",
+        "post_converge_patch_sha256": "84b4079e1cfbc554c29cb9d2d1e907a12baed390785ed96ab1004db23dc9dec4",
+        "post_converge_untracked_manifest_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "status": "PROVENANCE_ACCEPTED_AFTER_STAGE8N"
+      }
+    },
+    "gps_provenance_policy": "canonical v2 provenance accepts external GPS Git worktree, or an absent external path only when device/lenovo/TB8504/gps is present in the reconstructed device-tree provenance; plain-tree external GPS is rejected",
+    "gps_repo": {
+      "mode": "absent",
+      "source": "device/lenovo/TB8504/gps"
+    },
+    "host_only_repo": {
+      "allowed_dirty_prefix": "windows-x86/",
+      "head": "06a4f29f8512c6b77bdce81dd036a3e39954803b",
+      "path": "prebuilts/rust"
+    },
+    "policy": "converge captures actual external-GPS or bundled-device-GNSS state; every build goal must stop until the GPS layout and post-convergence device/vendor integrity contracts are explicit",
+    "required_unproven_repo": "hardware/qcom-caf/msm8996/gps",
+    "seed_provenance_policy": {
+      "device_reconstruction": "baseline HEAD + tracked patch + untracked, then exact status and tar metadata/content equivalence",
+      "required_files": [
+        "workspace-source-state.json",
+        "gps-source-state.json",
+        "primary-source-state.json",
+        "static-source-state.json"
+      ],
+      "static_repos": "captured at local contract gate and re-bound to seed patch bytes before STAGE8N acceptance",
+      "untracked_contract": "path+type+unix_mode+size+sha256; exact archive coverage; symlinks rejected",
+      "vendor_reconstruction": "baseline HEAD + tracked patch + untracked, then exact status"
+    },
     "static_target_repos": {
-      "hardware/qcom-caf/msm8996/audio": {
-        "head": "560c079979144611f90e32f5a7485e631ef022c9",
-        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      },
-      "hardware/qcom-caf/msm8996/media": {
-        "head": "6cd9f642fa82d3da39ec5eef7aad6c158c2fce0f",
-        "patch_sha256": "26260b2a978a8e98b63002901576e849a5aa92fbaa817066e4690c6a987dc63e"
-      },
-      "hardware/qcom-caf/msm8996/display": {
-        "head": "92dc6b713dc4b4d37959b6af1078b98dd73ba740",
-        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      },
-      "hardware/lineage/compat": {
-        "head": "9e8811a297036c370f7643813a3c733f6e442d86",
-        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-      },
       "device/qcom/sepolicy-legacy-um": {
         "head": "8204f3a2895517f82bcc76e69996e51d4ea820fc",
         "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -421,113 +482,65 @@
       "external/skia": {
         "head": "22f5edb6c1bf350d1d9d67bb429db1a5539f3c05",
         "patch_sha256": "0bb8cb3828d13ff3e56cd1ed32b6b096e69bcd9d131c881741e6764d0a52732d"
-      }
-    },
-    "host_only_repo": {
-      "path": "prebuilts/rust",
-      "head": "06a4f29f8512c6b77bdce81dd036a3e39954803b",
-      "allowed_dirty_prefix": "windows-x86/"
-    },
-    "required_unproven_repo": "hardware/qcom-caf/msm8996/gps",
-    "policy": "converge captures actual external-GPS or bundled-device-GNSS state; every build goal must stop until the GPS layout and post-convergence device/vendor integrity contracts are explicit",
-    "dynamic_primary_repos": {
-      "device/lenovo/TB8504": {
-        "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
-        "post_converge_patch_sha256": null,
-        "post_converge_untracked_manifest_sha256": null,
-        "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE"
       },
-      "vendor/lenovo/TB8504": {
-        "head": "34690afc7eff4fc5223f4f2882c2054fcddcf986",
-        "post_converge_patch_sha256": null,
-        "post_converge_untracked_manifest_sha256": null,
-        "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE"
+      "hardware/lineage/compat": {
+        "head": "9e8811a297036c370f7643813a3c733f6e442d86",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "hardware/qcom-caf/msm8996/audio": {
+        "head": "560c079979144611f90e32f5a7485e631ef022c9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "hardware/qcom-caf/msm8996/display": {
+        "head": "92dc6b713dc4b4d37959b6af1078b98dd73ba740",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "hardware/qcom-caf/msm8996/media": {
+        "head": "6cd9f642fa82d3da39ec5eef7aad6c158c2fce0f",
+        "patch_sha256": "26260b2a978a8e98b63002901576e849a5aa92fbaa817066e4690c6a987dc63e"
       }
     },
     "workspace_repo_contract": {
-      "revision_fingerprint": null,
-      "expected_project_count": null,
-      "status": "REQUIRES_LOCAL_CONVERGE_CAPTURE",
-      "policy": "all repo projects contribute path+HEAD; dirty projects outside the explicitly modeled target/host set are forbidden"
-    },
-    "seed_provenance_policy": {
-      "required_files": [
-        "workspace-source-state.json",
-        "gps-source-state.json",
-        "primary-source-state.json",
-        "static-source-state.json"
-      ],
-      "untracked_contract": "path+type+unix_mode+size+sha256; exact archive coverage; symlinks rejected",
-      "device_reconstruction": "baseline HEAD + tracked patch + untracked, then exact status and tar metadata/content equivalence",
-      "vendor_reconstruction": "baseline HEAD + tracked patch + untracked, then exact status",
-      "static_repos": "captured at local contract gate and re-bound to seed patch bytes before STAGE8N acceptance"
-    },
-    "gps_provenance_policy": "canonical v2 provenance accepts external GPS Git worktree, or an absent external path only when device/lenovo/TB8504/gps is present in the reconstructed device-tree provenance; plain-tree external GPS is rejected"
+      "expected_project_count": 1167,
+      "policy": "all repo projects contribute path+HEAD; dirty projects outside the explicitly modeled target/host set are forbidden",
+      "revision_fingerprint": "ca4aba885a55951402ec309efb29c15a22dea5f1a9317d581c2bba446d258827",
+      "status": "PROVENANCE_ACCEPTED_AFTER_STAGE8N"
+    }
   },
-  "performance_contract": {
-    "target": "Snapdragon 425 / 2 GB low-end Android 16",
-    "background_blur_support": false,
-    "stale_surfaceflinger_props_removed": [
-      "debug.sf.disable_backpressure"
-    ],
-    "retained_low_end_props": {
-      "ro.config.avoid_gfx_accel": "true"
+  "successful_artifacts": {
+    "boot_earlier": {
+      "build_time": "00:05:00",
+      "note": "Boot passed structural/kernel audit before later IMS/WFD/product-compat source changes. A fresh boot rebuild is required before treating boot as final.",
+      "status": "PASS_BUT_SUPERSEDED_BY_LATER_SOURCE_CHANGES"
     },
-    "inherited_android10_graphics_props_preserved": [
-      "debug.egl.hw=0",
-      "debug.sf.hw=0",
-      "debug.hwui.use_buffer_age=false"
-    ],
-    "memory_model": {
-      "kernel": "3.18 legacy Android lowmemorykiller",
-      "CONFIG_ANDROID_LOW_MEMORY_KILLER": "y",
-      "CONFIG_ZRAM": "y",
-      "CONFIG_SWAP": "y",
-      "CONFIG_MEMCG": "n",
-      "PSI": "unavailable",
-      "decision": "Do not force modern PSI/memcg lmkd without a deliberate kernel backport."
-    },
-    "rationale": "Keep the Android-10-era Qualcomm CPU/ZRAM/LMK tuning that was already known-good, while disabling Android 16 blur capability and removing only a SurfaceFlinger property no longer consumed by Android 16."
+    "recovery_current": {
+      "build_time": "00:17:23",
+      "built_at_local_report": "/home/dre/TB8504_RECOVERY_STAGE_20261007_111728",
+      "fstab_contract": "PASS",
+      "header_version": 0,
+      "init_contract": "PASS",
+      "kernel_match": true,
+      "kernel_sha256": "6dcb32cde2d172b7e4467cc9015ccb6c292668f2155f1749ac2e186d0c4577fe",
+      "kernel_size": 28490895,
+      "no_flash": true,
+      "page_size": 2048,
+      "ramdisk_size": 14123257,
+      "sha256": "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725ddd91cb8e61",
+      "size": 42618880,
+      "status": "PASS"
+    }
   },
-  "audit_hardening_current": {
-    "local_boot_recovery": [
-      "required TB8504/msm8937 kernel config",
-      "forced module-signing config",
-      "expected TB8504 DTB present and embedded",
-      "hardware-critical boot cmdline tokens",
-      "kernel payload equals local Image.gz-dtb",
-      "module signer/vermagic coherence"
-    ],
-    "final_system": [
-      "partition size and sparse-header contract",
-      "simg2img materialization when sparse",
-      "ext filesystem magic",
-      "e2fsck -f -n must return clean",
-      "actual installed ELF DT_NEEDED graph and bitness",
-      "host checkvintf --check-compat",
-      "built low-end graphics properties",
-      "all installed vendor ELF consumers are re-audited against bitness-correct providers, not only PRODUCT_COPY_FILES entries",
-      "host checkvintf receives ro.product.first_api_level=25 and the built kernel release + .config so kernel VINTF requirements are not skipped"
-    ],
-    "final_ota": [
-      "ZIP CRC and safe paths",
-      "TB8504 pre-device aliases",
-      "post-build fingerprint and SDK",
-      "boot/recovery binding",
-      "block OTA transfer-list syntax",
-      "system.new.dat(.br/.xz) new/zero blocks bound to staged system.img",
-      "payload.bin and super.img are forbidden because TB8504 is legacy static non-A/B"
-    ],
-    "build_metadata": "Source-only converge never trusts stale module-info.json. Every build goal runs AOSP refreshmod and re-audits runtime contracts before compiling images.",
-    "artifact_binding": [
-      "boot/recovery/system/vendor/ROM state is bound to SOURCE_FINGERPRINT plus SHA256",
-      "a successful mka target may not re-bind a stale artifact unless the produced file is demonstrably refreshed",
-      "bacon applies the same stale-output refresh requirement to boot/recovery/system when their bindings are stale"
-    ],
-    "provenance": [
-      "untracked provenance includes Unix mode and exact byte coverage",
-      "device and vendor are reconstructed from provenance rather than trusted as opaque exported state",
-      "static source provenance closes audit-to-export TOCTOU"
-    ]
+  "workflow_history": {
+    "important_rule": "Source-side PASS is not final authority for produced images. Built artifacts in out/ must be audited after each build.",
+    "lint_latest_known": "SUCCESS_RUN_91_PLUS_PENDING_92_AT_AUDIT_TIME",
+    "stage8n_idempotency_gate": "SUCCESS",
+    "stage8n_strict_latest_known": "SUCCESS_RUN_17_CURRENT_HELPERS_BEFORE_SEED_CAPTURE_HARDENING"
+  },
+  "workspace": {
+    "default_root": "/home/dre/android16-tb8504/lineage-23.2",
+    "device_tree": "device/lenovo/TB8504",
+    "kernel_tree": "kernel/lenovo/msm8917",
+    "product_out": "out/target/product/TB8504",
+    "vendor_tree": "vendor/lenovo/TB8504"
   }
 }
