@@ -378,7 +378,7 @@
       "device tar must match the provenance-reconstructed device tree including file type, mode, size and content",
       "static build-critical repository provenance is bound to exported patch bytes and rechecked against approved knowledge contracts before promotion",
       "provenance promotion is allowed only after all STAGE8N gates pass and while the branch still points at the immutable request commit",
-      "GPS provenance is git-backed only; non-git GPS trees are rejected before export because the canonical seed requires per-repo HEAD/patch/status metadata"
+      "GPS provenance captures a Git worktree when present; when absent, the device tar must contain the bundled GNSS source and is bound to reconstructed device HEAD/patch/untracked provenance"
     ],
     "tooling_ci_gate": {
       "workflow": "TB8504 cloud lane lint",
@@ -429,7 +429,7 @@
       "allowed_dirty_prefix": "windows-x86/"
     },
     "required_unproven_repo": "hardware/qcom-caf/msm8996/gps",
-    "policy": "converge may collect an unproven GPS or dynamic-primary state; every build goal must stop until GPS and post-convergence device/vendor integrity contracts are explicit",
+    "policy": "converge captures actual external-GPS or bundled-device-GNSS state; every build goal must stop until the GPS layout and post-convergence device/vendor integrity contracts are explicit",
     "dynamic_primary_repos": {
       "device/lenovo/TB8504": {
         "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
@@ -462,7 +462,7 @@
       "vendor_reconstruction": "baseline HEAD + tracked patch + untracked, then exact status",
       "static_repos": "captured at local contract gate and re-bound to seed patch bytes before STAGE8N acceptance"
     },
-    "gps_provenance_policy": "canonical v2 provenance requires hardware/qcom-caf/msm8996/gps to be a readable git worktree; plain-tree mode is rejected before seed export"
+    "gps_provenance_policy": "canonical v2 provenance accepts external GPS Git worktree, or an absent external path only when device/lenovo/TB8504/gps is present in the reconstructed device-tree provenance; plain-tree external GPS is rejected"
   },
   "performance_contract": {
     "target": "Snapdragon 425 / 2 GB low-end Android 16",
