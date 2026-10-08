@@ -351,9 +351,9 @@ jobs:
               ]
               wh2=hashlib.sha256()
               for row in sorted(bundled_projects,key=lambda x:x["path"]):
-                  wh2.update(row["path"].encode()+b"\\0")
-                  wh2.update(row["head"].encode()+b"\\0")
-              wh2.update(b"LOCAL_MANIFESTS\\0"+manifests.encode()+b"\\0")
+                  wh2.update(row["path"].encode()+b"\0")
+                  wh2.update(row["head"].encode()+b"\0")
+              wh2.update(b"LOCAL_MANIFESTS\0"+manifests.encode()+b"\0")
               bundled_workspace["projects"]=bundled_projects
               bundled_workspace["project_count"]=len(bundled_projects)
               bundled_workspace["revision_fingerprint"]=wh2.hexdigest()
@@ -372,7 +372,7 @@ jobs:
                           "TB8504/gps/utils/Android.mk",
                       ]
                       for name in names if complete else names[:-1]:
-                          data=b"LOCAL_PATH := $(call my-dir)\\n"
+                          data=b"LOCAL_PATH := $(call my-dir)\n"
                           info=tarfile.TarInfo(name)
                           info.size=len(data)
                           info.mode=0o644
@@ -401,7 +401,7 @@ jobs:
                   "--tooling-ref",tooling,
               ],text=True,capture_output=True)
               if bundled_run.returncode!=0:
-                  raise SystemExit(bundled_run.stdout+"\\n"+bundled_run.stderr)
+                  raise SystemExit(bundled_run.stdout+"\n"+bundled_run.stderr)
               assert json.loads(bundled_output.read_text())[
                   "source_integrity_contracts"
               ]["gps_repo"] == {
