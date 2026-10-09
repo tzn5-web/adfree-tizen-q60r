@@ -272,6 +272,10 @@ jobs:
           print("TB8504_GOLDEN_PROFILE_SELFTEST=PASS")
           PY
 
+      - name: Shared kernel pair self-test
+        shell: bash
+        run: python3 tb8504-build/scripts/self-test-autopilot-pair.py
+
       - name: Local image regression self-test
         shell: bash
         run: python3 tb8504-build/scripts/self-test-local-image.py

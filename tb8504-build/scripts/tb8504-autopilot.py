@@ -1607,6 +1607,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         target_kinds = {
             "bootimage": ("boot",),
             "recoveryimage": ("recovery",),
+            "bootimage recoveryimage": ("boot", "recovery"),
             "systemimage": ("system",),
             "vendorimage": ("vendor",),
             "bacon": ("boot", "recovery", "system"),
@@ -1636,7 +1637,8 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                             f"cannot remove stale {kind}.img before rebuild"
                         )
             self.say(f"BUILD_ATTEMPT={attempt}/{self.max_attempts}")
-            r = self.android_shell(f"mka {sh_quote(target)}", f"build-{target}-attempt{attempt}.log")
+            command = "mka " + " ".join(sh_quote(part) for part in target.split())
+            r = self.android_shell(command, f"build-{target.replace(chr(32), chr(45))}-attempt{attempt}.log")
             if r.rc == 0:
                 for kind in target_kinds:
                     after = self.artifact_state(self.product_out / f"{kind}.img")
@@ -1822,15 +1824,34 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.audit_partition_image("vendor", limit)
         self.say("VENDOR_STAGE=PASS")
 
-    def ensure_current_boot_recovery(self) -> None:
+    def require_boot_recovery_kernel_coherence(self) -> None:
+        hashes = []
         for kind in ("boot", "recovery"):
-            if self.audit_image(kind):
-                continue
-            self.build_target(f"{kind}image")
-            if not self.audit_image(kind, fresh=True):
-                raise StopAutopilot(
-                    f"{kind} image could not be bound to current source state"
-                )
+            image = self.product_out / f"{kind}.img"
+            data = image.read_bytes()
+            if len(data) < 48 or data[:8] != b"ANDROID!":
+                raise StopAutopilot(f"{kind} header missing before pair audit")
+            kernel_size = struct.unpack_from("<I", data, 8)[0]
+            page_size = struct.unpack_from("<I", data, 36)[0]
+            payload = data[page_size:page_size + kernel_size]
+            if kernel_size <= 0 or len(payload) != kernel_size or page_size != 2048:
+                raise StopAutopilot(f"{kind} kernel bounds invalid before pair audit")
+            hashes.append(hashlib.sha256(payload).hexdigest())
+        if len(set(hashes)) != 1:
+            raise StopAutopilot(f"boot/recovery kernel mismatch: {hashes}")
+        self.say(f"BOOT_RECOVERY_KERNEL_SHA256={hashes[0]}")
+        self.say("BOOT_RECOVERY_KERNEL_COHERENCE=PASS")
+
+    def ensure_current_boot_recovery(self) -> None:
+        valid = [self.audit_image(kind) for kind in ("boot", "recovery")]
+        if not all(valid):
+            # One Android invocation builds the kernel once and packages both
+            # images. Sequential image builds can change the kernel timestamp.
+            self.build_target("bootimage recoveryimage")
+            for kind in ("boot", "recovery"):
+                if not self.audit_image(kind, fresh=True):
+                    raise StopAutopilot(f"{kind} image failed the shared-kernel pair audit")
+        self.require_boot_recovery_kernel_coherence()
         self.say("BOOT_RECOVERY_SOURCE_BINDING=PASS")
 
     def ensure_system(self) -> None:
@@ -1943,6 +1964,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.say("FINAL_ROM_POSTBUILD_SOURCE_GATES=PASS")
 
         self.require_built_output_audit("bacon-postbuild", "bacon")
+        self.require_boot_recovery_kernel_coherence()
 
         # A handler inside the built-output gate may have rebuilt bacon.
         # Select and hash the package only after every possible rebuild.
@@ -1961,11 +1983,10 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             return
 
         if not self.audit_image("recovery"):
-            self.build_target("recoveryimage")
-            if not self.audit_image("recovery", fresh=True):
-                raise StopAutopilot("next-stage recovery audit failed")
+            self.ensure_current_boot_recovery()
             self.say("NEXT_COMPLETED=RECOVERY")
             return
+        self.require_boot_recovery_kernel_coherence()
 
         if self.detect_vendor_partition():
             raw = self.release_info.get("BOARD_VENDORIMAGE_PARTITION_SIZE", "")
@@ -2078,20 +2099,17 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             self.ensure_image("boot")
             return
         if self.goal == "recovery":
-            self.ensure_image("boot")
-            self.ensure_image("recovery")
+            self.ensure_current_boot_recovery()
             return
         if self.goal == "next":
             self.next_stage()
             return
         if self.goal == "system":
-            self.ensure_image("boot")
-            self.ensure_image("recovery")
+            self.ensure_current_boot_recovery()
             self.ensure_system()
             return
         if self.goal == "rom":
-            self.ensure_image("boot")
-            self.ensure_image("recovery")
+            self.ensure_current_boot_recovery()
             self.ensure_system()
             self.full_rom()
             return
@@ -2274,7 +2292,9 @@ def static_self_test() -> None:
     ).read_text("utf-8", errors="replace")
     for guard in (
         "STAGE8N_HANDOFF_PROVENANCE=PASS",
-        'parents[]=$TOOLING_REF',
+        '"parents":[parent]',
+        'ACTUAL_PARENTS',
+        'request parent mismatch before ref update',
         'force=false',
         'TOOLING_REF=$TOOLING_REF',
         "workspace-source-state.json",

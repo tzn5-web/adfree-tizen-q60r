@@ -115,6 +115,14 @@ and images therefore remain a local integrated-build responsibility.
 - ramdisk / second / recovery_dtbo / dtb are byte-identical to the seed where present
 - header semantics remain unchanged apart from kernel-size/hash-derived fields
 
+## Shared-kernel boot/recovery gate
+
+Recovery and later goals build `bootimage recoveryimage` together when either
+image needs refreshing, then re-audit both and compare their actual kernel
+payload hashes. Building the images separately can regenerate the kernel
+build timestamp, invalidating the boot image that passed earlier in the run.
+A recovery-stage PASS requires a coherent pair, not only two earlier passes.
+
 ## Local image audit boundary
 
 The local Android 16 identity gate accepts only `16` or `Baklava`, together

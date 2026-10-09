@@ -461,10 +461,14 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
                     )"
                 fi
                 if [[ "$TREE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-                    STAGE8N_REQUEST_COMMIT="$(gh api --method POST "repos/$GITHUB_REPO/git/commits" \
-                        -f message="tb8504: request cloud STAGE8N audit $STAMP" \
-                        -f tree="$TREE_SHA" \
-                        -f "parents[]=$TOOLING_REF" --jq '.sha')"
+                    # Explicit JSON also preserves the parents array with
+                    # older gh versions that send parents[] as a literal key.
+                    STAGE8N_REQUEST_COMMIT="$(
+                        python3 -c 'import json,sys; message,tree,parent=sys.argv[1:]; print(json.dumps({"message":message,"tree":tree,"parents":[parent]}))' \
+                            "tb8504: request cloud STAGE8N audit $STAMP" "$TREE_SHA" "$TOOLING_REF" |
+                        gh api --method POST "repos/$GITHUB_REPO/git/commits" \
+                            --input - --jq '.sha'
+                    )"
                 fi
 
                 if [[ ! "$BLOB_SHA" =~ ^[0-9a-f]{40}$ ]] || \
@@ -473,6 +477,10 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
                    [[ ! "$STAGE8N_REQUEST_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
                     fail "failed to construct immutable STAGE8N request commit"
                 else
+                    ACTUAL_PARENTS="$(gh api --method GET "repos/$GITHUB_REPO/git/commits/$STAGE8N_REQUEST_COMMIT" --jq '[.parents[].sha] | join(",")')"
+                    if [ "$ACTUAL_PARENTS" != "$TOOLING_REF" ]; then
+                        fail "STAGE8N request parent mismatch before ref update: $ACTUAL_PARENTS != $TOOLING_REF"
+                    else
                     gh api --method PATCH "repos/$GITHUB_REPO/git/refs/heads/$GITHUB_TARGET" \
                         -f sha="$STAGE8N_REQUEST_COMMIT" -F force=false >/dev/null
                     REQUEST_RC=$?
@@ -488,6 +496,7 @@ if [ "$UPLOAD_DRAFT" = "1" ] && [ "$RC" -eq 0 ]; then
                             echo "STAGE8N_REQUEST_PARENT=$ACTUAL_PARENT"
                             echo "STAGE8N_HANDOFF_PROVENANCE=PASS"
                         fi
+                    fi
                     fi
                 fi
             fi
