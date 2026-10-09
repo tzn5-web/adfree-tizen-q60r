@@ -138,6 +138,8 @@ service controls, missing signatures, and altered signed payloads.
 
 ## Recovered crDroid 10 golden profile
 
+The captured ROM is `crDroidAndroid-10.0-20211226-TB8504-v6.25`,
+Android 10 / SDK 29; the label describes Android 10, not crDroid version 10.
 The original 2026-10-03 capture is retained locally in
 `android16-tb8504/golden` and the original `perf-baseline` folder.
 `apply-golden-profile.py` records the capture SHA256 and appends a guarded

@@ -33,7 +33,8 @@ def golden_block() -> str:
         '    if [ -w "$1" ]; then',
         '        printf "%s\\n" "$2" > "$1" || echo "TB8504_GOLDEN_WRITE_FAILED: $1" >&2',
         "    else", '        echo "TB8504_GOLDEN_NODE_UNAVAILABLE: $1" >&2', "    fi", "}",
-        'if [ "$(getprop ro.product.device)" = "TB8504" ]; then',
+        'tb8504_golden_device=$(getprop ro.product.device)',
+        'if [ "$tb8504_golden_device" = "TB8504" ] || [ "$tb8504_golden_device" = "TB-8504F" ]; then',
         "    tb8504_golden_write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 'interactive'",
     ]
     for key, value in INTERACTIVE.items():
