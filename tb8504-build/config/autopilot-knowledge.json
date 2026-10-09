@@ -120,20 +120,20 @@
     }
   },
   "cloud_seed": {
-    "accepted_request_commit": "937eaf245acc2d3505f91e027619a5d664b6c64a",
-    "accepted_tooling_ref": "f71aa6ca65264b0b1421bd479c57afc52a4b2cab",
+    "accepted_request_commit": "4bb7c41610ba7027e5e31c28a7df85621a9856a6",
+    "accepted_tooling_ref": "37c12f9295c4d95ed3ae7c8ed386abf047ead23e",
     "boot_seed_present": true,
-    "boot_seed_sha256": "cbc866aa401eb73509a731b0dd0e977519032cd2c8821949a4500e9f9494f9d7",
+    "boot_seed_sha256": "09a4d9e6f1639f2d2e5e34b5e032e65ecba3f3c52097f02ef6d3f24130acad92",
     "coverage": "COMPLETE_FOR_BUILD_PROVENANCE",
     "coverage_blocker": null,
-    "integrity": "105 ZIP members; 104/104 SHA256SUMS verified; archive and provenance audit PASS; STAGE8N source/runtime gates PASS",
+    "integrity": "105 ZIP entries; CRC verified; STAGE8N source and runtime gates PASS; seed content SHA256 pinned",
     "legacy_seed_only": false,
     "legacy_seed_reason": null,
     "recovery_seed_present": true,
-    "recovery_seed_sha256": "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725ddd91cb8e61",
-    "release_tag": "tb8504-cloud-seed-20261008_210235",
+    "recovery_seed_sha256": "f7d875014e6ac2cde9c9489b25126aa8574a600c93c3a00c0353a4f1720a8d37",
+    "release_tag": "tb8504-cloud-seed-20261009_114026",
     "required_format_version": 2,
-    "zip_sha256": "4331a611c8fd042da4e2953781d7626e3bbe19a5842d1f0edd4b7f92f77c0359",
+    "zip_sha256": "6c063c882ad4ca9be3759a564ad17ca242adf3b7a729bd0fb967174a948a7bcf",
     "zip_windows_path": null
   },
   "generated_from_audited_history": "2026-10-07",
@@ -431,16 +431,18 @@
   },
   "source_integrity_contracts": {
     "accepted_provenance": {
-      "release_tag": "tb8504-cloud-seed-20261008_210235",
-      "request_commit": "937eaf245acc2d3505f91e027619a5d664b6c64a",
-      "seed_sha256": "4331a611c8fd042da4e2953781d7626e3bbe19a5842d1f0edd4b7f92f77c0359",
-      "tooling_ref": "f71aa6ca65264b0b1421bd479c57afc52a4b2cab",
+      "release_tag": "tb8504-cloud-seed-20261009_114026",
+      "request_commit": "4bb7c41610ba7027e5e31c28a7df85621a9856a6",
+      "seed_sha256": "6c063c882ad4ca9be3759a564ad17ca242adf3b7a729bd0fb967174a948a7bcf",
+      "tooling_ref": "37c12f9295c4d95ed3ae7c8ed386abf047ead23e",
       "workspace_revision_fingerprint": "ca4aba885a55951402ec309efb29c15a22dea5f1a9317d581c2bba446d258827"
     },
     "dynamic_primary_repos": {
       "device/lenovo/TB8504": {
         "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
-        "status": "GOLDEN_PROFILE_AWAITING_STAGE8N_PROVENANCE"
+        "post_converge_patch_sha256": "40521b1afbc30462dbebbdf474579460eba2a8f6611090555a5d5175b3d9be1f",
+        "post_converge_untracked_manifest_sha256": "0ecdd88670a3a5cb10d28207e4a831cfd575559b8a9d47ff5f4b1b08dbb08e7b",
+        "status": "PROVENANCE_ACCEPTED_AFTER_STAGE8N"
       },
       "vendor/lenovo/TB8504": {
         "head": "34690afc7eff4fc5223f4f2882c2054fcddcf986",
