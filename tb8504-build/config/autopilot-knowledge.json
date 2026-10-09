@@ -130,13 +130,21 @@
     "legacy_seed_only": false,
     "legacy_seed_reason": null,
     "recovery_seed_present": true,
+    "recovery_seed_sha256": "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725ddd91cb8e61",
     "release_tag": "tb8504-cloud-seed-20261008_210235",
     "required_format_version": 2,
     "zip_sha256": "4331a611c8fd042da4e2953781d7626e3bbe19a5842d1f0edd4b7f92f77c0359",
-    "zip_windows_path": null,
-    "recovery_seed_sha256": "da0d80b0fc4c094ea529ff3daf50ef22570b3ede3d62ed6a7c725ddd91cb8e61"
+    "zip_windows_path": null
   },
   "generated_from_audited_history": "2026-10-07",
+  "golden_profile": {
+    "capture_date": "2026-10-03",
+    "capture_sha256": "a630e1798ec820d279af91fc56d9e0bbfd557d9a04bce52c779a1a84f6fbbc92",
+    "cross_version_adaptation": "retain Android 16 ART/LMKD policy; port observed governor, storage and graphics sysfs settings",
+    "runtime_validation": "pending device test",
+    "source": "local crDroid 10 TB8504 device_perf.txt",
+    "transform": "apply-golden-profile.py"
+  },
   "historical_stage8n": {
     "cloud_converged": {
       "gnss_bad_edges": 0,
@@ -432,9 +440,7 @@
     "dynamic_primary_repos": {
       "device/lenovo/TB8504": {
         "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
-        "post_converge_patch_sha256": "f9e048aec1736e5bdf9aae76bffc313bee2df061903336ce135fa6d49a68befd",
-        "post_converge_untracked_manifest_sha256": "0ecdd88670a3a5cb10d28207e4a831cfd575559b8a9d47ff5f4b1b08dbb08e7b",
-        "status": "PROVENANCE_ACCEPTED_AFTER_STAGE8N"
+        "status": "GOLDEN_PROFILE_AWAITING_STAGE8N_PROVENANCE"
       },
       "vendor/lenovo/TB8504": {
         "head": "34690afc7eff4fc5223f4f2882c2054fcddcf986",

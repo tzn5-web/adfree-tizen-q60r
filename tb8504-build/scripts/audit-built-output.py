@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import os
 import re
+import runpy
 import shutil
 import struct
 import tempfile
@@ -306,14 +307,6 @@ def audit_build_props(out: Path) -> None:
     if not props:
         fail("no built build.prop files found")
     combined="\n".join(t for _,t in props)
-    if "ro.build.version.sdk=36" not in combined:
-        fail("built properties do not prove SDK 36")
-    if (
-        "ro.build.version.release_or_codename=16" not in combined
-        and "ro.build.version.release=16" not in combined
-    ):
-        fail("built properties do not prove Android 16")
-
     def values(key: str) -> set[str]:
         result=set()
         prefix=key+"="
@@ -324,7 +317,18 @@ def audit_build_props(out: Path) -> None:
                     result.add(s[len(prefix):].strip())
         return result
 
+    sdk = values("ro.build.version.sdk")
+    platform = values("ro.build.version.release_or_codename")
+    if sdk != {"36"} or len(platform) != 1 or not platform.issubset({"16", "Baklava"}):
+        fail(f"built properties do not prove Android 16: sdk={sdk} platform={platform}")
+
     performance_props={
+        "dalvik.vm.heapstartsize":{"16m"},
+        "dalvik.vm.heapgrowthlimit":{"192m"},
+        "dalvik.vm.heapsize":{"512m"},
+        "dalvik.vm.heaptargetutilization":{"0.75"},
+        "dalvik.vm.heapminfree":{"2m"},
+        "dalvik.vm.heapmaxfree":{"8m"},
         "ro.surface_flinger.supports_background_blur":{"0"},
         "ro.config.avoid_gfx_accel":{"true"},
     }
@@ -437,76 +441,23 @@ def audit_modules(root: Path, out: Path) -> None:
     if not any((mr/"modules.dep").is_file() for mr in module_roots):
         fail("installed modules.dep missing")
 
-    modinfo=shutil.which("modinfo")
-    openssl=shutil.which("openssl")
-    cert=out/"obj/KERNEL_OBJ/signing_key.x509"
-    if not modinfo or not openssl or not cert.is_file():
-        fail("installed module signing audit prerequisites missing")
-    kernel_obj=out/"obj/KERNEL_OBJ"
-    kernel_release=""
-    release_file=kernel_obj/"include/config/kernel.release"
-    if release_file.is_file():
-        kernel_release=release_file.read_text("utf-8",errors="replace").strip()
-    if not kernel_release:
-        uts=kernel_obj/"include/generated/utsrelease.h"
-        if uts.is_file():
-            m_rel=re.search(
-                r'#define\\s+UTS_RELEASE\\s+"([^"]+)"',
-                uts.read_text("utf-8",errors="replace"),
-            )
-            if m_rel:
-                kernel_release=m_rel.group(1)
-    if not kernel_release:
-        fail("cannot determine built kernel release for module vermagic audit")
-
-    signers=set()
-    sig_keys=set()
-    vermagics=set()
-    for ko in kos:
-        signer=subprocess.run(
-            [modinfo,"-F","signer",str(ko)],text=True,capture_output=True
-        ).stdout.strip()
-        key=subprocess.run(
-            [modinfo,"-F","sig_key",str(ko)],text=True,capture_output=True
-        ).stdout.strip()
-        vermagic=subprocess.run(
-            [modinfo,"-F","vermagic",str(ko)],text=True,capture_output=True
-        ).stdout.strip()
-        if not signer or not key or not vermagic:
-            fail(f"installed unsigned/unreadable module metadata: {ko}")
-        if vermagic.split()[0] != kernel_release:
-            fail(
-                f"installed module vermagic mismatch {ko.name}: "
-                f"{vermagic!r} != {kernel_release!r}"
-            )
-        signers.add(signer)
-        sig_keys.add(re.sub(r"[^0-9a-fA-F]","",key).lower())
-        vermagics.add(vermagic)
-    if len(signers)!=1 or len(sig_keys)!=1:
-        fail(f"installed module signing identities diverge: {signers} {sig_keys}")
-
-    cert_text=""
-    for cmd in (
-        [openssl,"x509","-in",str(cert),"-noout","-text"],
-        [openssl,"x509","-inform","DER","-in",str(cert),"-noout","-text"],
-    ):
-        p=subprocess.run(cmd,text=True,capture_output=True)
-        if p.returncode==0:
-            cert_text=p.stdout
-            break
-    m=re.search(r"Subject Key Identifier:\s*\n\s*([0-9A-Fa-f:]+)",cert_text)
-    if not m:
-        fail("kernel signing cert SKI missing")
-    ski=re.sub(r"[^0-9a-fA-F]","",m.group(1)).lower()
-    key=next(iter(sig_keys))
-    if key!=ski and not key.endswith(ski):
-        fail(f"installed module sig_key != kernel cert SKI: {key} != {ski}")
-    print(f"BUILT_KERNEL_RELEASE={kernel_release}")
-    print(f"INSTALLED_MODULE_VERMAGIC_VARIANTS={len(vermagics)}")
-    print(f"INSTALLED_MODULE_SIGNER={next(iter(signers))}")
-    print(f"INSTALLED_MODULE_SIGNING_SKI={ski}")
+    local = runpy.run_path(str(Path(__file__).with_name("audit-local-image.py")), run_name="built_module_audit")
+    local["audit_modules"](root)
     print("INSTALLED_MODULE_VERMAGIC_COHERENCE=PASS")
     print("INSTALLED_MODULE_SIGNING_COHERENCE=PASS")
+
+
+def audit_golden_profile(out: Path) -> None:
+    helper = runpy.run_path(str(Path(__file__).with_name("apply-golden-profile.py")), run_name="built_golden_audit")
+    script = out / "system/vendor/bin/init.qcom.post_boot.sh"
+    if not script.is_file():
+        fail("built golden-profile post-boot script missing")
+    text = script.read_text("utf-8", errors="strict")
+    if text != helper["transform"](text):
+        fail("built post-boot script does not contain the final golden profile")
+    print("GOLDEN_BUILT_PROFILE=PASS")
+    print("GOLDEN_RUNTIME_VERIFICATION=PENDING_DEVICE_TEST")
+
 
 def audit_system_image(root: Path, out: Path) -> None:
     p=out/"system.img"
@@ -792,6 +743,7 @@ def main() -> int:
     audit_vendor_copy(root,out)
     audit_actual_vendor_elf_dependencies(root,out)
     audit_runtime(out)
+    audit_golden_profile(out)
     audit_removed_outputs(out)
     audit_vintf(out)
     audit_checkvintf(root,out)

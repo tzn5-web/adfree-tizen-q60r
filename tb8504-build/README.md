@@ -136,6 +136,27 @@ Regression checks cover invalid release identities, missing or corrupted
 first-stage evidence, disabled or changed system mount contracts, removed
 service controls, missing signatures, and altered signed payloads.
 
+## Recovered crDroid 10 golden profile
+
+The original 2026-10-03 capture is retained locally in
+`android16-tb8504/golden` and the original `perf-baseline` folder.
+`apply-golden-profile.py` records the capture SHA256 and appends a guarded
+TB8504-only override after Qualcomm's post-boot setup. It restores the
+observed interactive governor values, core_ctl setting, swappiness,
+page-cluster, CFQ/read-ahead and Adreno governor/default power level.
+The inherited 1 GiB ZRAM configuration and six Dalvik heap settings match
+the capture. Built-output auditing requires the final golden script and
+those heap settings. Thermal controls remain active.
+
+Transient frequencies, memory-use measurements, old ART optimization modes,
+and Android 10 LMK policy are not treated as portable Android 16 settings.
+Runtime application/performance still requires a physical device test;
+source and image audit success alone cannot establish this.
+
+Any source change invalidates prior image bindings. The first golden-profile
+run must use `--goal converge --upload-seed`, pass STAGE8N, and promote the
+new provenance before the next staged build is accepted.
+
 ## Physical layout
 
 - boot: 67,108,864 bytes

@@ -208,6 +208,70 @@ jobs:
           print("TB8504_HELPER_BEHAVIOR_SELFTEST=PASS")
           PY
 
+      - name: Golden profile transform self-test
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import runpy
+          mod = runpy.run_path("tb8504-build/scripts/apply-golden-profile.py", run_name="golden_test")
+          before = "#!/vendor/bin/sh\nfunction 8917_sched_dcvs_hmp() { :; }\n"
+          after = mod["transform"](before)
+          assert mod["transform"](after) == after
+          assert after.endswith(mod["golden_block"]())
+          assert "thermal/core_control/enabled" not in mod["golden_block"]()
+          for bad in ("unexpected script", after + "echo overwrite\n", after.replace("'85'", "'75'"), after + mod["golden_block"]()):
+              try:
+                  mod["transform"](bad)
+              except SystemExit:
+                  pass
+              else:
+                  raise AssertionError("ambiguous golden source accepted")
+          import tempfile
+          import subprocess
+          import contextlib
+          import io
+          from pathlib import Path
+          with tempfile.TemporaryDirectory() as tmp:
+              target = Path(tmp) / "node"
+              target.write_text("")
+              script = 'getprop() { printf "other"; }\n' + mod["golden_block"]() + f"tb8504_golden_write '{target}' '19000 1094400:39000'\n"
+              subprocess.run(["bash"], input=script, text=True, check=True)
+              assert target.read_text() == "19000 1094400:39000\n"
+              built = runpy.run_path("tb8504-build/scripts/audit-built-output.py", run_name="golden_built_test")
+              out = Path(tmp) / "out"
+              post = out / "system/vendor/bin/init.qcom.post_boot.sh"
+              post.parent.mkdir(parents=True)
+              post.write_text(after)
+              with contextlib.redirect_stdout(io.StringIO()):
+                  built["audit_golden_profile"](out)
+              post.write_text(before)
+              try:
+                  built["audit_golden_profile"](out)
+              except SystemExit:
+                  pass
+              else:
+                  raise AssertionError("built golden profile missing was accepted")
+              prop = out / "system/build.prop"
+              props = {
+                  "ro.build.version.sdk": "36", "ro.build.version.release_or_codename": "Baklava",
+                  "ro.surface_flinger.supports_background_blur": "0", "ro.config.avoid_gfx_accel": "true",
+                  "dalvik.vm.heapstartsize": "16m", "dalvik.vm.heapgrowthlimit": "192m",
+                  "dalvik.vm.heapsize": "512m", "dalvik.vm.heaptargetutilization": "0.75",
+                  "dalvik.vm.heapminfree": "2m", "dalvik.vm.heapmaxfree": "8m",
+              }
+              for overrides, wanted in [({}, True), ({"ro.build.version.release_or_codename": "16"}, True), ({"ro.build.version.release_or_codename": "160"}, False), ({"ro.build.version.sdk": "36x"}, False), ({"dalvik.vm.heapgrowthlimit": "384m"}, False)]:
+                  prop.write_text("".join(f"{k}={v}\n" for k, v in {**props, **overrides}.items()))
+                  with contextlib.redirect_stdout(io.StringIO()):
+                      try:
+                          built["audit_build_props"](out)
+                      except SystemExit:
+                          accepted = False
+                      else:
+                          accepted = True
+                  assert accepted == wanted, overrides
+          print("TB8504_GOLDEN_PROFILE_SELFTEST=PASS")
+          PY
+
       - name: Local image regression self-test
         shell: bash
         run: python3 tb8504-build/scripts/self-test-local-image.py

@@ -41,6 +41,7 @@ HELPERS = (
     "apply-residual-cleanup.py",
     "apply-product-compat.py",
     "apply-performance-compat.py",
+    "apply-golden-profile.py",
     "audit-product-compat.py",
     "audit-performance-compat.py",
     "audit-residual-contracts.py",
@@ -1049,8 +1050,19 @@ class Autopilot:
             "performance-compat",
         )
 
+        golden_changed = self.run_idempotent_transform(
+            "apply-golden-profile.py",
+            lambda report, patch: [
+                "--device", str(self.device),
+                "--patch-out", str(patch),
+                "--report-out", str(report),
+            ],
+            "GOLDEN_PROFILE_STATE", "GOLDEN_PROFILE", "golden-profile",
+        )
+
         self.source_changed = (
-            runtime_changed
+            golden_changed
+            or runtime_changed
             or residual_changed
             or product_changed
             or performance_changed
