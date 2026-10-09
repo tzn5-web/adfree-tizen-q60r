@@ -167,6 +167,26 @@ Any source change invalidates prior image bindings. The first golden-profile
 run must use `--goal converge --upload-seed`, pass STAGE8N, and promote the
 new provenance before the next staged build is accepted.
 
+## Accepted golden source and paired images
+
+The golden convergence seed `tb8504-cloud-seed-20261009_114026` passed
+[STAGE8N run 37906549460](https://github.com/tzn5-web/adfree-tizen-q60r/actions/runs/37906549460).
+The audited source hashes were promoted in commit
+`b4ab0f1` before local image builds resumed. This is source acceptance;
+physical-device performance validation remains pending.
+
+The local orchestrator requires successful lint on its exact tooling commit.
+GitHub suppresses push-triggered workflows for commits made with
+`GITHUB_TOKEN`, including the automatic provenance acceptance commit.
+After that promotion, a reviewed tooling or documentation commit must pass
+push lint before starting the next local stage; an earlier lint run is not
+accepted as evidence for the new commit.
+
+Boot and recovery use one combined `mka bootimage recoveryimage` build when
+either image is stale. Their embedded kernel payload hashes must match after
+both image audits. Separate successful image audits do not prove that the
+pair has the same kernel. System and ROM stages reuse this same pair gate.
+
 ## Physical layout
 
 - boot: 67,108,864 bytes
