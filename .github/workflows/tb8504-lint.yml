@@ -160,11 +160,57 @@ jobs:
               "tb8504-build/scripts/audit-local-image.py",
               run_name="__tb8504_local_image_selftest__",
           )
+          import io
+          import contextlib
+          import tempfile
+          from pathlib import Path
+          base_release = {
+              "TARGET_RELEASE": "trunk_staging",
+              "TARGET_PRODUCT": "lineage_TB8504",
+              "TARGET_VARIANT": "userdebug",
+              "PLATFORM_SDK_VERSION": "36",
+              "PLATFORM_VERSION": "Baklava",
+              "LINEAGE_VERSION": "23.2-test-UNOFFICIAL-TB8504",
+          }
+          with tempfile.TemporaryDirectory() as tmp:
+              report = Path(tmp) / "release.txt"
+              cases = [
+                  ({"PLATFORM_VERSION": "16"}, True),
+                  ({"PLATFORM_VERSION": "Baklava"}, True),
+                  ({"PLATFORM_VERSION": "160"}, False),
+                  ({"PLATFORM_VERSION": "16-preview"}, False),
+                  ({"PLATFORM_VERSION": "15"}, False),
+                  ({"PLATFORM_VERSION": "CinnamonBun"}, False),
+                  ({"PLATFORM_VERSION": ""}, False),
+                  ({"PLATFORM_SDK_VERSION": "35"}, False),
+                  ({"PLATFORM_VERSION": "16", "PLATFORM_SDK_VERSION": "37"}, False),
+                  ({"TARGET_PRODUCT": "lineage_other"}, False),
+                  ({"TARGET_RELEASE": "other"}, False),
+                  ({"TARGET_VARIANT": "user"}, False),
+                  ({"LINEAGE_VERSION": "22.2-test"}, False),
+              ]
+              for overrides, wanted in cases:
+                  values = {**base_release, **overrides}
+                  report.write_text("".join(f"{k}={v}\n" for k, v in values.items()))
+                  with contextlib.redirect_stdout(io.StringIO()):
+                      try:
+                          img["read_release_report"](report)
+                      except SystemExit as exc:
+                          assert exc.code == 2
+                          accepted = False
+                      else:
+                          accepted = True
+                  assert accepted == wanted, (overrides, accepted, wanted)
+          print("ANDROID16_IMAGE_RELEASE_GATE_SELFTEST=PASS")
           assert img["EXPECTED_DTB"] == "tb8504-msm8917-pmi8937-qrd-sku5.dtb"
           assert "CONFIG_MODULE_SIG_FORCE=y" in img["REQUIRED_KERNEL_CONFIG"]
           assert "androidboot.bootdevice=7824900.sdhci" in img["REQUIRED_CMDLINE_TOKENS"]
           print("TB8504_HELPER_BEHAVIOR_SELFTEST=PASS")
           PY
+
+      - name: Local image regression self-test
+        shell: bash
+        run: python3 tb8504-build/scripts/self-test-local-image.py
 
       - name: Provenance promotion self-test
         shell: bash

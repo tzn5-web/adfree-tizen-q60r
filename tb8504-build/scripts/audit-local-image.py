@@ -167,7 +167,9 @@ def read_release_report(path: Path) -> None:
         if values.get(k) != wanted:
             fail(f"release gate mismatch {k}: {values.get(k)!r} != {wanted!r}")
     platform = values.get("PLATFORM_VERSION", "")
-    if not platform.startswith("16"):
+    # trunk_staging reports the Android 16 development codename.
+    # SDK 36 is independently required above; accept only exact identities.
+    if platform not in {"16", "Baklava"}:
         fail(f"PLATFORM_VERSION is not Android 16: {platform!r}")
     lineage = values.get("LINEAGE_VERSION", "")
     if not lineage.startswith("23.2-"):
@@ -178,6 +180,57 @@ def read_release_report(path: Path) -> None:
         "PLATFORM_SDK_VERSION","LINEAGE_VERSION","BUILD_ID",
     ):
         print(f"{key}={values.get(key, '')}")
+
+def parse_legacy_module(data: bytes) -> dict[str, bytes | str]:
+    """Parse Linux 3.18 raw RSA signatures, unsupported by modern modinfo."""
+    magic = b"~Module signature appended~\n"
+    if not data.endswith(magic) or len(data) < len(magic) + 12:
+        fail("legacy module signature trailer missing or truncated")
+    end = len(data) - len(magic) - 12
+    algo, digest, ident, signer_len, key_len, sig_len = struct.unpack_from(
+        ">BBBBB3xI", data, end,
+    )
+    if data[end + 5:end + 8] != b"\0\0\0":
+        fail("legacy module signature padding is invalid")
+    if (algo, digest, ident) != (1, 6, 1):
+        fail(f"legacy module signature must use RSA/SHA512/X509: {algo}/{digest}/{ident}")
+    unsigned_end = end - signer_len - key_len - sig_len
+    if unsigned_end < 64 or not signer_len or not key_len or sig_len < 3:
+        fail("legacy module signature lengths are invalid")
+    signer_end = unsigned_end + signer_len
+    key_end = signer_end + key_len
+    signature = data[key_end:end]
+    if struct.unpack_from(">H", signature)[0] != len(signature) - 2:
+        fail("legacy module RSA signature length mismatch")
+    unsigned = data[:unsigned_end]
+    if unsigned[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<H", unsigned, 18)[0] != 183:
+        fail("legacy module is not an AArch64 ELF")
+    matches = re.findall(rb"(?:^|\x00)vermagic=([^\x00]+)", unsigned)
+    if len(matches) != 1:
+        fail(f"legacy module must contain one vermagic entry: {len(matches)}")
+    return {
+        "unsigned": unsigned, "signature": signature[2:],
+        "signer": data[unsigned_end:signer_end].decode("utf-8", "strict"),
+        "key": data[signer_end:key_end].hex(),
+        "vermagic": matches[0].decode("ascii", "strict"),
+    }
+
+
+def verify_legacy_module(data: bytes, public_key: bytes, openssl: str) -> dict:
+    row = parse_legacy_module(data)
+    with tempfile.TemporaryDirectory(prefix="tb8504-module-audit-") as tmp:
+        key = Path(tmp) / "public.pem"
+        signature = Path(tmp) / "signature.bin"
+        key.write_bytes(public_key)
+        signature.write_bytes(row["signature"])
+        proc = subprocess.run(
+            [openssl, "dgst", "-sha512", "-verify", str(key), "-signature", str(signature)],
+            input=row["unsigned"], capture_output=True, check=False,
+        )
+        if proc.returncode != 0:
+            fail("legacy module RSA/SHA512 signature verification failed")
+    return row
+
 
 def audit_modules(root: Path) -> None:
     out = root / "out/target/product/TB8504"
@@ -202,11 +255,10 @@ def audit_modules(root: Path) -> None:
     if not (stage / "modules.dep").is_file():
         fail("depmod did not produce modules.dep")
 
-    modinfo = shutil.which("modinfo")
     openssl = shutil.which("openssl")
     cert = out / "obj/KERNEL_OBJ/signing_key.x509"
-    if not modinfo or not openssl or not cert.is_file():
-        fail("module-signing audit requires modinfo, openssl and signing_key.x509")
+    if not openssl or not cert.is_file():
+        fail("module-signing audit requires openssl and signing_key.x509")
 
     kernel_obj = out / "obj/KERNEL_OBJ"
     kernel_release = ""
@@ -217,7 +269,7 @@ def audit_modules(root: Path) -> None:
         uts = kernel_obj / "include/generated/utsrelease.h"
         if uts.is_file():
             m_rel = re.search(
-                r'#define\\s+UTS_RELEASE\\s+"([^"]+)"',
+                r'#define\s+UTS_RELEASE\s+"([^"]+)"',
                 uts.read_text("utf-8", errors="replace"),
             )
             if m_rel:
@@ -225,37 +277,8 @@ def audit_modules(root: Path) -> None:
     if not kernel_release:
         fail("cannot determine local kernel release for module vermagic audit")
 
-    signer_set: set[str] = set()
-    key_set: set[str] = set()
-    vermagic_set: set[str] = set()
-    for ko in kos:
-        signer = subprocess.run(
-            [modinfo, "-F", "signer", str(ko)], text=True,
-            capture_output=True, check=False,
-        ).stdout.strip()
-        sig_key = subprocess.run(
-            [modinfo, "-F", "sig_key", str(ko)], text=True,
-            capture_output=True, check=False,
-        ).stdout.strip()
-        vermagic = subprocess.run(
-            [modinfo, "-F", "vermagic", str(ko)], text=True,
-            capture_output=True, check=False,
-        ).stdout.strip()
-        if not signer or not sig_key or not vermagic:
-            fail(f"unsigned/unreadable module metadata: {ko.name}")
-        if vermagic.split()[0] != kernel_release:
-            fail(
-                f"module vermagic release mismatch {ko.name}: "
-                f"{vermagic!r} != {kernel_release!r}"
-            )
-        signer_set.add(signer)
-        key_set.add(re.sub(r"[^0-9a-fA-F]", "", sig_key).lower())
-        vermagic_set.add(vermagic)
-
-    if len(signer_set) != 1 or len(key_set) != 1:
-        fail(f"module signing identity is not coherent signers={signer_set} keys={key_set}")
-
     cert_text = ""
+    cert_format: list[str] = []
     for args in (
         [openssl, "x509", "-in", str(cert), "-noout", "-text"],
         [openssl, "x509", "-inform", "DER", "-in", str(cert), "-noout", "-text"],
@@ -263,6 +286,7 @@ def audit_modules(root: Path) -> None:
         proc = subprocess.run(args, text=True, capture_output=True, check=False)
         if proc.returncode == 0:
             cert_text = proc.stdout
+            cert_format = ["-inform", "DER"] if "DER" in args else []
             break
     if not cert_text:
         fail("cannot parse local kernel signing certificate")
@@ -272,6 +296,30 @@ def audit_modules(root: Path) -> None:
     if not m:
         fail("local signing certificate has no Subject Key Identifier")
     cert_ski = re.sub(r"[^0-9a-fA-F]", "", m.group(1)).lower()
+    key_proc = subprocess.run(
+        [openssl, "x509", *cert_format, "-in", str(cert), "-pubkey", "-noout"],
+        capture_output=True, check=False,
+    )
+    if key_proc.returncode != 0 or not key_proc.stdout:
+        fail("cannot extract local kernel certificate public key")
+    signer_set: set[str] = set()
+    key_set: set[str] = set()
+    vermagic_set: set[str] = set()
+    for ko in kos:
+        row = verify_legacy_module(ko.read_bytes(), key_proc.stdout, openssl)
+        signer, sig_key, vermagic = row["signer"], row["key"], row["vermagic"]
+        if not vermagic.split() or vermagic.split()[0] != kernel_release:
+            fail(f"module vermagic release mismatch {ko.name}: {vermagic!r} != {kernel_release!r}")
+        installed = out / "system/vendor/lib/modules" / ko.name
+        if not installed.is_file() or installed.read_bytes() != ko.read_bytes():
+            fail(f"installed module differs from audited depmod staging: {ko.name}")
+        signer_set.add(signer)
+        key_set.add(sig_key)
+        vermagic_set.add(vermagic)
+    if len(signer_set) != 1 or len(key_set) != 1:
+        fail(f"module signing identity is not coherent signers={signer_set} keys={key_set}")
+    print("MODULE_LEGACY_RSA_SHA512_VERIFICATION=PASS")
+    print("MODULE_INSTALLED_STAGING_MATCH=PASS")
     module_key = next(iter(key_set))
     if module_key != cert_ski and not module_key.endswith(cert_ski):
         fail(f"module sig_key does not match local certificate SKI {module_key} != {cert_ski}")
@@ -283,7 +331,105 @@ def audit_modules(root: Path) -> None:
     print("MODULE_VERMAGIC_COHERENCE=PASS")
     print("MODULE_SIGNING_COHERENCE=PASS")
 
-def audit_ramdisk(kind: str, files: dict[str, bytes]) -> None:
+def parse_fdt_properties(data: bytes) -> dict[str, dict[str, bytes]]:
+    """Read bounded FDT v17 nodes/properties from the actual embedded DTB."""
+    if len(data) < 40:
+        fail("first-stage DTB header is truncated")
+    header = struct.unpack_from(">10I", data)
+    magic, total, off_struct, off_strings, _, version, _, _, size_strings, size_struct = header
+    if magic != 0xD00DFEED or version != 17 or total != len(data):
+        fail("first-stage DTB header is invalid")
+    if (off_struct < 40 or off_strings < 40
+            or off_struct + size_struct > total
+            or off_strings + size_strings > total):
+        fail("first-stage DTB section bounds are invalid")
+    strings = data[off_strings:off_strings + size_strings]
+    end = off_struct + size_struct
+    off = off_struct
+    stack: list[str] = []
+    nodes: dict[str, dict[str, bytes]] = {}
+    while off + 4 <= end:
+        token = struct.unpack_from(">I", data, off)[0]
+        off += 4
+        if token == 1:  # FDT_BEGIN_NODE
+            stop = data.find(b"\0", off, end)
+            if stop < 0:
+                fail("first-stage DTB node name is unterminated")
+            name = data[off:stop].decode("ascii", "strict")
+            stack.append(name)
+            path = "/" + "/".join(stack[1:])
+            if path in nodes:
+                fail(f"first-stage DTB duplicate node: {path}")
+            nodes[path] = {}
+            off = align(stop + 1, 4)
+        elif token == 2:  # FDT_END_NODE
+            if not stack:
+                fail("first-stage DTB node stack underflow")
+            stack.pop()
+        elif token == 3:  # FDT_PROP
+            if not stack or off + 8 > end:
+                fail("first-stage DTB property header is invalid")
+            size, name_off = struct.unpack_from(">2I", data, off)
+            off += 8
+            stop = strings.find(b"\0", name_off)
+            if name_off >= len(strings) or stop < 0 or off + size > end:
+                fail("first-stage DTB property bounds are invalid")
+            name = strings[name_off:stop].decode("ascii", "strict")
+            path = "/" + "/".join(stack[1:])
+            if name in nodes[path]:
+                fail(f"first-stage DTB duplicate property: {path}:{name}")
+            nodes[path][name] = data[off:off + size]
+            off = align(off + size, 4)
+        elif token == 4:  # FDT_NOP
+            continue
+        elif token == 9:  # FDT_END
+            if stack:
+                fail("first-stage DTB has unclosed nodes")
+            return nodes
+        else:
+            fail(f"first-stage DTB token is invalid: {token}")
+    fail("first-stage DTB end token is missing")
+
+
+def audit_first_stage_boot(files: dict[str, bytes], root: Path, dtb: bytes) -> None:
+    init = files.get("init", b"")
+    current = root / "out/target/product/TB8504/ramdisk/init"
+    if not current.is_file() or current.read_bytes() != init:
+        fail("boot first-stage init differs from the current built ramdisk/init")
+    if (len(init) < 20 or init[:6] != b"\x7fELF\x02\x01"
+            or struct.unpack_from("<H", init, 18)[0] != 183):
+        fail("boot first-stage init is not an AArch64 ELF executable")
+    nodes = parse_fdt_properties(dtb)
+    required = {
+        "/firmware/android": {"compatible": "android,firmware"},
+        "/firmware/android/fstab": {"compatible": "android,fstab"},
+        "/firmware/android/fstab/system": {
+            "compatible": "android,system",
+            "dev": "/dev/block/platform/soc/7824900.sdhci/by-name/system",
+            "type": "ext4",
+            "mnt_flags": "ro,barrier=1,discard",
+            "fsmgr_flags": "wait",
+            "status": "ok",
+        },
+        "/firmware/android/fstab/vendor": {"status": "disabled"},
+    }
+    for path, properties in required.items():
+        for name, expected in properties.items():
+            if nodes.get(path, {}).get(name) != expected.encode("ascii") + b"\0":
+                fail(f"first-stage DTB mount contract mismatch: {path}:{name}")
+    for path in ("/firmware/android", "/firmware/android/fstab"):
+        status = nodes.get(path, {}).get("status", b"ok\0")
+        if status not in {b"ok\0", b"okay\0"}:
+            fail(f"first-stage DTB mount node disabled: {path}")
+    print("BOOT_RAMDISK_LAYOUT=FIRST_STAGE_INIT")
+    print("BOOT_FIRST_STAGE_INIT_MATCH=PASS")
+    print("BOOT_FIRST_STAGE_DTB_SYSTEM_MOUNT=PASS")
+    print("BOOT_SECOND_STAGE_RUNTIME_AUDIT=DEFERRED_TO_SYSTEM_IMAGE")
+
+
+def audit_ramdisk(
+    kind: str, files: dict[str, bytes], root: Path | None = None, dtb: bytes = b"",
+) -> None:
     names = sorted(files)
     bases = {Path(x).name for x in names}
     print(f"RAMDISK_FILE_COUNT={len(names)}")
@@ -293,13 +439,16 @@ def audit_ramdisk(kind: str, files: dict[str, bytes]) -> None:
     if kind == "boot":
         target_names = [n for n in names if Path(n).name == "init.target.rc"]
         if not target_names:
-            fail("boot ramdisk has no init.target.rc")
-        text = "\n".join(
-            files[n].decode("utf-8", "replace") for n in target_names
-        )
-        for service in REQUIRED_IMS:
-            if f"service {service} " not in text:
-                fail(f"boot ramdisk missing restored IMS service: {service}")
+            if root is None or not dtb:
+                fail("boot first-stage layout requires built init and embedded DTB evidence")
+            audit_first_stage_boot(files, root, dtb)
+        else:
+            text = "\n".join(
+                files[n].decode("utf-8", "replace") for n in target_names
+            )
+            for service in REQUIRED_IMS:
+                if f"service {service} " not in text:
+                    fail(f"boot ramdisk missing restored IMS service: {service}")
 
         stale: list[str] = []
         for name, data in files.items():
@@ -311,7 +460,7 @@ def audit_ramdisk(kind: str, files: dict[str, bytes]) -> None:
                     stale.append(f"{name}:{no}:{m.group(1)}")
         if stale:
             fail(f"boot ramdisk has stale removed-service controls: {stale[:20]}")
-        print("BOOT_RAMDISK_RUNTIME_CONTRACTS=PASS")
+        print("BOOT_RAMDISK_CONTENT_AUDIT=PASS")
     else:
         if "init.recovery.qcom.rc" not in bases:
             fail("recovery ramdisk missing init.recovery.qcom.rc")
@@ -454,7 +603,7 @@ def main() -> int:
     print(f"RAMDISK_COMPRESSION={compression}")
     print(f"RAMDISK_UNCOMPRESSED_SIZE={len(cpio)}")
     files = parse_newc(cpio)
-    audit_ramdisk(args.kind, files)
+    audit_ramdisk(args.kind, files, root, dtb_data)
     audit_modules(root)
 
     print(f"{args.kind.upper()}_IMAGE_AUDIT=PASS")

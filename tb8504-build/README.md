@@ -115,6 +115,27 @@ and images therefore remain a local integrated-build responsibility.
 - ramdisk / second / recovery_dtbo / dtb are byte-identical to the seed where present
 - header semantics remain unchanged apart from kernel-size/hash-derived fields
 
+## Local image audit boundary
+
+The local Android 16 identity gate accepts only `16` or `Baklava`, together
+with SDK 36, `trunk_staging`, `lineage_TB8504`, and LineageOS 23.2.
+
+The canonical boot ramdisk contains first-stage `init`. Device init scripts
+are installed in `system/vendor/etc/init/hw`, so their IMS/runtime checks
+remain mandatory in the built-system and final-package audits. The boot-only
+audit checks the exact built AArch64 first-stage init and the embedded DTB's
+system mount contract; it reports second-stage runtime validation as deferred.
+
+Linux 3.18 modules use the legacy raw RSA signature format. The local auditor
+parses that format, verifies every RSA/SHA512 signature using the local
+kernel certificate, checks its key ID and vermagic, and requires installed
+modules to match depmod staging. Modern `modinfo` is not used to infer that
+these legacy signatures are missing.
+
+Regression checks cover invalid release identities, missing or corrupted
+first-stage evidence, disabled or changed system mount contracts, removed
+service controls, missing signatures, and altered signed payloads.
+
 ## Physical layout
 
 - boot: 67,108,864 bytes
