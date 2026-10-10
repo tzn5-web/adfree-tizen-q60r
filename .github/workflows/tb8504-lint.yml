@@ -193,7 +193,7 @@ jobs:
           import tempfile
           from pathlib import Path
           base_release = {
-              "TARGET_RELEASE": "trunk_staging",
+              "TARGET_RELEASE": "bp4a",
               "TARGET_PRODUCT": "lineage_TB8504",
               "TARGET_VARIANT": "userdebug",
               "PLATFORM_SDK_VERSION": "36",
@@ -214,6 +214,7 @@ jobs:
                   ({"PLATFORM_VERSION": "16", "PLATFORM_SDK_VERSION": "37"}, False),
                   ({"TARGET_PRODUCT": "lineage_other"}, False),
                   ({"TARGET_RELEASE": "other"}, False),
+                  ({"TARGET_RELEASE": "trunk_staging"}, False),
                   ({"TARGET_VARIANT": "user"}, False),
                   ({"LINEAGE_VERSION": "22.2-test"}, False),
               ]
