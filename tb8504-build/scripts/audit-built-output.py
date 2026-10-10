@@ -351,36 +351,56 @@ def audit_build_props(out: Path) -> None:
     print("BUILT_LOW_END_GRAPHICS_CONTRACT=PASS")
 
 def audit_vintf(out: Path) -> None:
+    """Distinguish deployed manifest HALs from matrix compatibility entries.
+
+    Android 16 / VINTF meta-version 9 removes the optional flag: matrix
+    entries do not prove a HAL is installed. Manifest declarations and
+    old non-optional matrix requirements remain rejected for removed WFD.
+    https://source.android.com/docs/core/architecture/vintf/comp-matrices
+    """
     xmls=[]
     stale=[]
+    matrix_only=[]
     ims=False
     parse_errors=[]
+    seen=set()
     for root in installed_roots(out):
         for p in root.rglob("*.xml"):
-            if "vintf" not in str(p).lower():
+            if "vintf" not in str(p).lower() or p in seen:
                 continue
+            seen.add(p)
             try:
-                text=p.read_text("utf-8",errors="replace")
-            except OSError:
+                tree=ET.fromstring(p.read_text("utf-8",errors="strict"))
+            except (OSError, UnicodeError, ET.ParseError) as exc:
+                parse_errors.append(f"{p}:{exc}")
                 continue
             xmls.append(p)
-            if "com.qualcomm.qti.wifidisplayhal" in text:
-                stale.append(str(p))
-            if "vendor.qti.imsrtpservice" in text:
-                ims=True
-            try:
-                ET.fromstring(text)
-            except ET.ParseError as exc:
-                parse_errors.append(f"{p}:{exc}")
+            for hal in tree.findall("hal"):
+                name=(hal.findtext("name") or "").strip()
+                if name=="vendor.qti.imsrtpservice" and tree.tag=="manifest":
+                    ims=True
+                if name!="com.qualcomm.qti.wifidisplayhal":
+                    continue
+                matrix = (tree.tag=="compatibility-matrix" and
+                          tree.get("type") in ("framework","device"))
+                informational = matrix and tree.get("version")=="9.0"
+                legacy_optional = (matrix and tree.get("version") in
+                                   {"1.0","2.0","3.0","4.0","5.0","6.0","7.0","8.0"}
+                                   and hal.get("optional")=="true")
+                if informational or legacy_optional:
+                    matrix_only.append(str(p))
+                else:
+                    stale.append(str(p))
     print(f"BUILT_VINTF_XML_FILES={len(xmls)}")
     print(f"BUILT_VINTF_PARSE_ERRORS={len(parse_errors)}")
+    print(f"BUILT_WFD_MATRIX_ONLY_ENTRIES={len(matrix_only)}")
     print(f"BUILT_STALE_WFD_VINTF={len(stale)}")
     if parse_errors:
-        fail(f"built VINTF XML parse errors: {parse_errors[:20]}")
+        fail(f"built VINTF XML parse/read errors: {parse_errors[:20]}")
     if stale:
-        fail(f"stale WFD HAL present in built VINTF: {stale[:20]}")
+        fail(f"removed WFD HAL declaration or legacy requirement in VINTF: {stale[:20]}")
     if not ims:
-        fail("built VINTF does not contain required vendor.qti.imsrtpservice")
+        fail("built VINTF manifest does not declare required vendor.qti.imsrtpservice")
     print("BUILT_VINTF_CONTRACTS=PASS")
 
 def audit_runtime(out: Path) -> None:
