@@ -7,11 +7,20 @@ import subprocess
 from pathlib import Path
 
 HEAD = '560c079979144611f90e32f5a7485e631ef022c9'
-FILES = {'hal/Android.mk': 1, 'post_proc/Android.mk': 2}
+FILES = {'hal/Android.mk': 1, 'post_proc/Android.mk': 2,
+         'hal/audio_extn/spkr_protection.c': None}
 OLD = 'LOCAL_HEADER_LIBRARIES := libhardware_headers'
 NEW = OLD + ' generated_kernel_headers'
 
 def transform(text, count):
+    if count is None:
+        for name in ('spkr_calibration_thread', 'spkr_v_vali_thread'):
+            old = f'static void* {name}()\n{{\n'
+            new = f'static void* {name}(void *arg)\n{{\n    (void)arg;\n'
+            if text.count(old) != 1:
+                raise ValueError('Unexpected speaker thread layout: ' + name)
+            text = text.replace(old, new)
+        return text
     if text.count(OLD) != count or 'generated_kernel_headers' in text:
         raise ValueError('Unexpected audio Make header layout')
     return text.replace(OLD, NEW)

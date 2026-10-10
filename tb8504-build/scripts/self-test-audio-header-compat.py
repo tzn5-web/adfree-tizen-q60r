@@ -18,8 +18,13 @@ def main():
         for rel, count in helper.FILES.items():
             path = root / rel
             path.parent.mkdir(parents=True)
-            path.write_text(('include $(CLEAR_VARS)\nLOCAL_HEADER_LIBRARIES := libhardware_headers\n'
-                             'LOCAL_MODULE := preserved_audio\ninclude $(BUILD_SHARED_LIBRARY)\n') * count)
+            if count is None:
+                path.write_text('#include <pthread.h>\n' + ''.join(
+                    f'static void* {name}()\n{{\n    return NULL;\n}}\n'
+                    for name in ('spkr_calibration_thread', 'spkr_v_vali_thread')))
+            else:
+                path.write_text(('include $(CLEAR_VARS)\nLOCAL_HEADER_LIBRARIES := libhardware_headers\n'
+                                 'LOCAL_MODULE := preserved_audio\ninclude $(BUILD_SHARED_LIBRARY)\n') * count)
         (root / 'unrelated.c').write_text('int untouched;\n')
         git('add', '.')
         git('commit', '-qm', 'Fixture')
@@ -52,10 +57,27 @@ def main():
             raise AssertionError('Unrelated source difference accepted')
         (root / 'unrelated.c').write_text('int untouched;\n')
         changed, patch, sha = helper.apply(root)
-        assert changed == 2 and patch.count('+LOCAL_HEADER_LIBRARIES') == 3
+        assert changed == 3 and patch.count('+LOCAL_HEADER_LIBRARIES') == 3
         for rel, data in original.items():
             result = (root / rel).read_text()
-            assert result.replace(' generated_kernel_headers', '') == data.decode()
+            if helper.FILES[rel] is None:
+                assert result.replace('(void *arg)', '()').replace('    (void)arg;\n', '') == data.decode()
+                test = root / 'pthread-test.c'
+                test.write_text(result + '''
+int main(void) {
+    pthread_t a, b;
+    if (pthread_create(&a, NULL, spkr_calibration_thread, NULL)) return 1;
+    if (pthread_create(&b, NULL, spkr_v_vali_thread, NULL)) return 2;
+    return pthread_join(a, NULL) || pthread_join(b, NULL);
+}
+''')
+                subprocess.run(['cc', '-pthread', '-Werror=incompatible-pointer-types', str(test),
+                                '-o', str(root / 'pthread-test')], check=True)
+                subprocess.run([str(root / 'pthread-test')], check=True)
+                test.unlink()
+                (root / 'pthread-test').unlink()
+            else:
+                assert result.replace(' generated_kernel_headers', '') == data.decode()
         assert helper.apply(root) == (0, '', sha)
     print('AUDIO_HEADER_COMPAT_SELFTEST=PASS')
 

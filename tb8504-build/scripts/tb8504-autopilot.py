@@ -1494,6 +1494,12 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
     def classify_failure(self, text: str, target: str) -> tuple[str, str] | None:
         rules: list[tuple[str, str, tuple[str, ...], bool]] = [
             (
+                "audio_thread_signature",
+                "legacy speaker calibration pthread entry point signature",
+                (r"spkr_protection\.c:\d+:\d+: error: incompatible function pointer types passing",),
+                True,
+            ),
+            (
                 "audio_headers",
                 "legacy audio module missing generated kernel header dependency",
                 ("fatal error: 'sound/voice_params.h' file not found",),
