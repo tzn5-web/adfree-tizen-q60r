@@ -37,6 +37,7 @@ REPO = "tzn5-web/adfree-tizen-q60r"
 BRANCH = "tb8504-android16-build"
 KNOWLEDGE_PATH = "tb8504-build/config/autopilot-knowledge.json"
 HELPERS = (
+    "apply-audio-header-compat.py",
     "apply-camera-compat.py",
     "apply-runtime-cleanup.py",
     "apply-residual-cleanup.py",
@@ -938,6 +939,17 @@ class Autopilot:
             self.say("KERNEL_DIRTY_STATE=CLEAN")
 
         self.audit_workspace_repo_state()
+        # The helper accepts only the exact approved audio HEAD and either
+        # original bytes or its deterministic reviewed postimage. The static
+        # provenance gate immediately binds the resulting full patch hash.
+        self.run_idempotent_transform(
+            "apply-audio-header-compat.py",
+            lambda report, patch: [
+                "--audio", str(self.root / "hardware/qcom-caf/msm8996/audio"),
+                "--patch-out", str(patch), "--report-out", str(report),
+            ],
+            "AUDIO_HEADER_COMPAT_STATE", "AUDIO_HEADER_COMPAT", "audio-header-compat",
+        )
         self.verify_extended_source_contracts()
         self.say("SOURCE_HEAD_GATE=PASS")
 
@@ -1481,6 +1493,12 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
 
     def classify_failure(self, text: str, target: str) -> tuple[str, str] | None:
         rules: list[tuple[str, str, tuple[str, ...], bool]] = [
+            (
+                "audio_headers",
+                "legacy audio module missing generated kernel header dependency",
+                ("fatal error: 'sound/voice_params.h' file not found",),
+                False,
+            ),
             (
                 "camera_compat",
                 "unguarded Qualcomm camera metadata callback in VANILLA_HAL",

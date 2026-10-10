@@ -275,6 +275,11 @@
       "cause": "checkvintf omits runtime kernel requirements unless --kernel receives the built kernel release and config",
       "fix": "Require ro.product.first_api_level=25 and run checkvintf with the built KERNEL_OBJ release plus .config.",
       "symptom": "checkvintf passes while kernel requirements are silently skipped"
+    },
+    {
+      "cause": "Legacy audio Make modules refer to KERNEL_OBJ/usr while current Lineage exports headers through generated_kernel_includes",
+      "fix": "Add generated_kernel_headers to HAL and both post-processing modules, retaining the exact kernel UAPI and all static integrity gates",
+      "symptom": "fatal error: 'sound/voice_params.h' file not found"
     }
   ],
   "partition_contract": {
@@ -503,7 +508,13 @@
       },
       "hardware/qcom-caf/msm8996/audio": {
         "head": "560c079979144611f90e32f5a7485e631ef022c9",
-        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        "header_compatibility": {
+          "git_diff_abbrev": 40,
+          "prior_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "scope": "Three existing Make audio modules use generated_kernel_headers; source ABI is unchanged",
+          "transform": "apply-audio-header-compat.py"
+        },
+        "patch_sha256": "73e81c5315aaa65d48e7ae9de7405c1faff61a4e46d05f4f5d0b6053fdd40ccb"
       },
       "hardware/qcom-caf/msm8996/display": {
         "head": "92dc6b713dc4b4d37959b6af1078b98dd73ba740",
