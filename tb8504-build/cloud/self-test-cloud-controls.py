@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fixtures only: never contact Azure, stop a service or compile Android."""
-import json, os, runpy, subprocess, tempfile, time
+import json, os, re, runpy, subprocess, tempfile, time
 from pathlib import Path
 from unittest.mock import patch
 import cloud_control as control
@@ -86,6 +86,8 @@ def main():
         assert 'fixture-token' not in (base/'deallocate.json').read_text()
         # Exercise the actual wrapper's signal/EXIT handling in a harmless sandbox.
         wrapper=(here/'server-build-audited.sh').read_text()
+        pins=re.findall(r'(?:fetch origin |checkout --detach |TB8504_TOOLING_REF=|start-run )([0-9a-f]{40})',wrapper)
+        assert len(pins)==4 and len(set(pins))==1, 'Fetch/checkout/export/run-binding tooling pins differ'
         prefix=wrapper[wrapper.index('completed=0'):wrapper.index('phase dependencies')]
         fakepackage=base/'package';fakepackage.mkdir()
         (fakepackage/'cloud_control.py').write_text('import sys\nprint("CONTROL="+" ".join(sys.argv[1:]))\n')
