@@ -37,6 +37,7 @@ REPO = "tzn5-web/adfree-tizen-q60r"
 BRANCH = "tb8504-android16-build"
 KNOWLEDGE_PATH = "tb8504-build/config/autopilot-knowledge.json"
 HELPERS = (
+    "apply-radio-runtime-compat.py",
     "apply-kernel-filelist-compat.py",
     "apply-audio-header-compat.py",
     "apply-camera-compat.py",
@@ -1092,8 +1093,19 @@ class Autopilot:
             "GOLDEN_PROFILE_STATE", "GOLDEN_PROFILE", "golden-profile",
         )
 
+        radio_changed = self.run_idempotent_transform(
+            "apply-radio-runtime-compat.py",
+            lambda report, patch: [
+                "--device", str(self.device),
+                "--patch-out", str(patch),
+                "--report-out", str(report),
+            ],
+            "RADIO_RUNTIME_COMPAT_STATE", "RADIO_RUNTIME_COMPAT", "radio-runtime-compat",
+        )
+
         self.source_changed = (
-            golden_changed
+            radio_changed
+            or golden_changed
             or runtime_changed
             or residual_changed
             or product_changed

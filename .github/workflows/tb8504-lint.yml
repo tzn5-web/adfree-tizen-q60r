@@ -105,6 +105,10 @@ jobs:
           set -o pipefail
           python3 tb8504-build/scripts/tb8504-autopilot.py --self-test
 
+      - name: Radio runtime compatibility self-test
+        shell: bash
+        run: python3 tb8504-build/scripts/self-test-radio-runtime-compat.py
+
       - name: Kernel module file-list compatibility self-test
         shell: bash
         run: python3 tb8504-build/scripts/self-test-kernel-filelist-compat.py
