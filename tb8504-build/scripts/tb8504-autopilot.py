@@ -1537,12 +1537,12 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                 "source_convergence",
                 "VINTF/runtime source regression",
                 (
-                    "checkvintf",
-                    "INCOMPATIBLE",
-                    "STALE_VINTF_HAL_DECLARATIONS",
-                    "UNRESOLVED_INIT_SERVICES",
+                    r"^\s*INCOMPATIBLE(?:\s|$)",
+                    r"^CHECKVINTF_RC=[1-9]\d*\s*$",
+                    r"^STALE_VINTF_HAL_DECLARATIONS=[1-9]\d*\s*$",
+                    r"^UNRESOLVED_INIT_SERVICES=[1-9]\d*\s*$",
                 ),
-                False,
+                True,
             ),
             (
                 "release_identity",

@@ -2,6 +2,7 @@
 import importlib.util
 import subprocess
 import tempfile
+import runpy
 from pathlib import Path
 
 def main():
@@ -79,6 +80,15 @@ int main(void) {
             else:
                 assert result.replace(' generated_kernel_headers', '') == data.decode()
         assert helper.apply(root) == (0, '', sha)
+    runner = runpy.run_path(str(Path(__file__).with_name('tb8504-autopilot.py')))
+    fake = runner['Autopilot'].__new__(runner['Autopilot'])
+    unrelated = "checkvintf license metadata\nother.c:1:2: error: incompatible function pointer types passing"
+    assert fake.classify_failure(unrelated, 'systemimage') is None
+    assert fake.classify_failure('STALE_VINTF_HAL_DECLARATIONS=0\nUNRESOLVED_INIT_SERVICES=0', 'systemimage') is None
+    for actual in ('INCOMPATIBLE', 'CHECKVINTF_RC=1', 'STALE_VINTF_HAL_DECLARATIONS=2', 'UNRESOLVED_INIT_SERVICES=4'):
+        assert fake.classify_failure(actual, 'systemimage')[0] == 'source_convergence'
+    specific = 'checkvintf license metadata\nspkr_protection.c:1741:47: error: incompatible function pointer types passing'
+    assert fake.classify_failure(specific, 'systemimage')[0] == 'audio_thread_signature'
     print('AUDIO_HEADER_COMPAT_SELFTEST=PASS')
 
 if __name__ == '__main__':
