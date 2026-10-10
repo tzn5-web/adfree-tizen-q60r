@@ -591,34 +591,36 @@ def read_kernel_release(out: Path) -> tuple[str, Path]:
     return release,config
 
 
+def vintf_partition_mappings(out: Path) -> list[tuple[str, Path]]:
+    # Match the pinned AOSP releasetools DIR_SEARCH_PATHS for embedded partitions.
+    candidates = {
+        "/system": ("system",),
+        "/vendor": ("vendor", "system/vendor"),
+        "/product": ("product", "system/product"),
+        "/odm": ("odm", "vendor/odm", "system/vendor/odm"),
+        "/system_ext": ("system_ext", "system/system_ext"),
+        "/apex": ("apex",),
+    }
+    mappings = []
+    for logical, relatives in candidates.items():
+        physical = next((out/rel for rel in relatives if (out/rel).is_dir()), None)
+        if physical is None:
+            fail(f"checkvintf cannot resolve staged {logical}; searched {relatives}")
+        mappings.append((logical, physical))
+    return mappings
+
+
 def audit_checkvintf(root: Path, out: Path) -> None:
     tool=root/"out/host/linux-x86/bin/checkvintf"
     if not tool.is_file():
         fail(f"checkvintf host tool missing after build: {tool}")
 
-    vendor_root=out/"vendor"
-    if not vendor_root.is_dir() and (out/"system/vendor").is_dir():
-        vendor_root=out/"system/vendor"
-
-    mappings=[
-        ("/system",out/"system"),
-        ("/vendor",vendor_root),
-        ("/odm",out/"odm"),
-        ("/product",out/"product"),
-        ("/system_ext",out/"system_ext"),
-        ("/apex",out/"apex"),
-    ]
+    mappings=vintf_partition_mappings(out)
     args=[str(tool),"--check-compat"]
     mapped=[]
     for logical,physical in mappings:
-        if physical.is_dir():
-            args += ["--dirmap",f"{logical}:{physical}"]
-            mapped.append(f"{logical}:{physical}")
-
-    if not any(x.startswith("/system:") for x in mapped):
-        fail("checkvintf cannot run: staged /system directory missing")
-    if not any(x.startswith("/vendor:") for x in mapped):
-        fail("checkvintf cannot run: staged /vendor directory missing")
+        args += ["--dirmap",f"{logical}:{physical}"]
+        mapped.append(f"{logical}:{physical}")
 
     first_api=read_first_api_level(out)
     if first_api != EXPECTED_FIRST_API_LEVEL:

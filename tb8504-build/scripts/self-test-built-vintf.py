@@ -33,3 +33,24 @@ with tempfile.TemporaryDirectory() as temp:
         except SystemExit:pass
         else:raise AssertionError('Matrix-only IMS reference accepted as deployed manifest HAL')
 print('BUILT_VINTF_SEMANTICS_SELFTEST=PASS')
+
+resolve=runpy.run_path(str(here/'audit-built-output.py'))['vintf_partition_mappings']
+with tempfile.TemporaryDirectory() as temp:
+    out=Path(temp)
+    for rel in ('system/vendor/odm','system/product','system/system_ext','apex'):
+        (out/rel).mkdir(parents=True)
+    mapped=dict(resolve(out))
+    assert mapped['/vendor']==out/'system/vendor'
+    assert mapped['/odm']==out/'system/vendor/odm'
+    assert mapped['/product']==out/'system/product'
+    assert mapped['/system_ext']==out/'system/system_ext'
+    for rel in ('vendor/odm','product','system_ext'):(out/rel).mkdir(parents=True)
+    mapped=dict(resolve(out))
+    assert mapped['/vendor']==out/'vendor' and mapped['/odm']==out/'vendor/odm'
+    assert mapped['/product']==out/'product' and mapped['/system_ext']==out/'system_ext'
+    (out/'apex').rmdir()
+    with contextlib.redirect_stdout(io.StringIO()):
+        try:resolve(out)
+        except SystemExit as exc:assert exc.code==2
+        else:raise AssertionError('Missing VINTF root accepted')
+print('BUILT_VINTF_PARTITION_MAPPING_SELFTEST=PASS')
