@@ -105,6 +105,10 @@ jobs:
           set -o pipefail
           python3 tb8504-build/scripts/tb8504-autopilot.py --self-test
 
+      - name: Azure control fixture self-test
+        shell: bash
+        run: python3 tb8504-build/cloud/self-test-cloud-controls.py
+
       - name: Audio header compatibility self-test
         shell: bash
         run: python3 tb8504-build/scripts/self-test-audio-header-compat.py

@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Serialize self-deallocation and preserve a budget stop across reboot."""
+import fcntl, json, sys, time, urllib.request
+from pathlib import Path
+BASE = Path('/home/dre/tb8504-cloud')
+sys.path.insert(0, str(BASE / 'package'))
+import cloud_control as control
+RESOURCE = '/subscriptions/c783a575-3e2a-4ef0-8375-42cc0ad966b8/resourceGroups/tb8504-android16/providers/Microsoft.Compute/virtualMachines/tb8504-a16-build'
+
+def main(reason):
+    boot_id = Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    with (BASE / '.deallocate.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print('AZURE_DEALLOCATION_ALREADY_IN_PROGRESS', flush=True)
+            return
+        if (BASE / 'budget-stop.json').exists(): reason = 'trial-credit-guard'
+        record = BASE / 'deallocate.json'
+        if record.exists():
+            previous = json.loads(record.read_text())
+            if previous.get('boot_id') == boot_id and previous.get('http_status') in (200, 202):
+                print('AZURE_DEALLOCATION_ALREADY_ACCEPTED', flush=True)
+                return
+        # The current legacy wrapper keeps running; verify its completion here
+        # as well, without rewriting a Bash file being executed.
+        if reason.startswith('finish-') and reason != 'trial-credit-guard':
+            try:
+                bundle = control.collect_artifacts()
+                control.atomic_json(BASE / 'state.json', {'phase': 'finished', 'rc': 0, 'artifacts_verified': True,
+                                    'artifact_bundle': str(bundle), 'time_unix': time.time()})
+            except Exception as exc:
+                if reason == 'finish-0':
+                    reason = 'finish-incomplete'
+                    control.atomic_json(BASE / 'state.json', {'phase': 'failed_incomplete', 'rc': 1,
+                                        'artifacts_verified': False, 'reason': str(exc), 'time_unix': time.time()})
+        for attempt in range(8):
+            try:
+                request = urllib.request.Request('http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F', headers={'Metadata': 'true'})
+                with urllib.request.urlopen(request, timeout=20) as response: token = json.load(response)['access_token']
+                request = urllib.request.Request('https://management.azure.com' + RESOURCE + '/deallocate?api-version=2025-04-01', data=b'', method='POST', headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+                with urllib.request.urlopen(request, timeout=60) as response: code = response.status
+                if code not in (200, 202): raise ValueError('Unexpected Azure response ' + str(code))
+                control.atomic_json(record, {'reason': reason, 'http_status': code, 'time': time.time(), 'boot_id': boot_id, 'actual_power_state_verified': False})
+                print('AZURE_DEALLOCATION_REQUESTED=' + reason, flush=True)
+                return
+            except Exception as exc:
+                control.atomic_json(BASE / 'deallocate-error.json', {'attempt': attempt + 1, 'error': type(exc).__name__, 'time': time.time()})
+                if attempt < 7: time.sleep(30)
+        raise SystemExit('Azure deallocation failed; operator intervention required')
+
+if __name__ == '__main__': main(sys.argv[1] if len(sys.argv) > 1 else 'finished')

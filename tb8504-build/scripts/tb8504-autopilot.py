@@ -1517,7 +1517,6 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                 (
                     'Key "PRIVATE_BUILD_DESC" isn\'t a valid prop override',
                     'Key "TARGET_DEVICE" isn\'t a valid prop override',
-                    "PRIVATE_BUILD_DESC",
                 ),
                 False,
             ),
@@ -1528,8 +1527,6 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
                     "boot ramdisk missing restored IMS service",
                     "stale removed-service controls",
                     "RESIDUAL_CLEANUP_FAIL=",
-                    "WfdService",
-                    "WfdCommon",
                 ),
                 False,
             ),
@@ -1569,8 +1566,8 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             (
                 "selinux_unknown",
                 "SELinux policy failure requires explicit review",
-                ("neverallow", "sepolicy"),
-                False,
+                (r"neverallow[^\n]*(?:violated|failure|failed)", r"(?:error|failed)[^\n]*(?:sepolicy|neverallow)", r"^Failed to compile[^\n]*policy"),
+                True,
             ),
         ]
         low = text.lower()

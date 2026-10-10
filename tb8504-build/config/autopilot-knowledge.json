@@ -1,4 +1,9 @@
 {
+  "audit_20261010": {
+    "cloud_authorization": "Canonical build is Azure; final signed kernel/module/image coherence is unchanged.",
+    "failure_classification": "Require actual failure diagnostics; ordinary PRIVATE_BUILD_DESC, WFD and SELinux metadata cannot trigger handlers.",
+    "remaining_native_checks": "Optional hal3-test-app has a legacy header defect but is absent from systemimage/bacon closure; production sources remain unchanged."
+  },
   "audit_hardening_current": {
     "artifact_binding": [
       "boot/recovery/system/vendor/ROM state is bound to SOURCE_FINGERPRINT plus SHA256",
@@ -184,7 +189,7 @@
     "cloud_old_vermagic": "3.18.140-lineageos-gd242d540 SMP preempt mod_unload modversions aarch64",
     "cloud_signing_cert_sha256": "cd49fdafb443c85d25455057facc2df96d7053a7f823174e7d9f92bb09cd8d3d",
     "cloud_signing_ski": "86a8b09f3f6d48a9900168becc64b66e34c70e89",
-    "critical_decision": "Never replace the local boot kernel/modules with cloud-built kernel/modules and never weaken signing coherence. Canonical final build is local so kernel and modules are built/signed together.",
+    "critical_decision": "User authorized the canonical Android 16 build in Azure on 2026-10-09. Build kernel, modules and all images together in that same audited workspace, retaining signing and source-binding gates. Never mix local and Azure boot/kernel/module artifacts. Local Android compilation remains stopped; no flash and no pay-as-you-go upgrade.",
     "expected_module_count": 12,
     "expected_modules": [
       "ansi_cprng.ko",

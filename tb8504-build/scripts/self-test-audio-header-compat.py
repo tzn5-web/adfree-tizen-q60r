@@ -89,6 +89,12 @@ int main(void) {
         assert fake.classify_failure(actual, 'systemimage')[0] == 'source_convergence'
     specific = 'checkvintf license metadata\nspkr_protection.c:1741:47: error: incompatible function pointer types passing'
     assert fake.classify_failure(specific, 'systemimage')[0] == 'audio_thread_signature'
+    ordinary = 'PRIVATE_BUILD_DESC metadata WfdService WfdCommon sepolicy neverallow inputs\nother.cpp:2:1: error: unknown compiler failure'
+    assert fake.classify_failure(ordinary, 'systemimage') is None
+    for actual, handler in [("Key \"PRIVATE_BUILD_DESC\" isn't a valid prop override", 'product_compat'),
+                            ('RESIDUAL_CLEANUP_FAIL=missing-service', 'residual_cleanup'),
+                            ('neverallow check failed at policy.conf:31', 'selinux_unknown')]:
+        assert fake.classify_failure(actual, 'systemimage')[0] == handler
     print('AUDIO_HEADER_COMPAT_SELFTEST=PASS')
 
 if __name__ == '__main__':
