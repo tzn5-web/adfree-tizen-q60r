@@ -2215,6 +2215,7 @@ def static_self_test() -> None:
     integrity = knowledge.get("source_integrity_contracts", {})
     static = integrity.get("static_target_repos", {})
     expected_static = {
+        "vendor/lineage",
         "hardware/qcom-caf/msm8996/audio",
         "hardware/qcom-caf/msm8996/media",
         "hardware/qcom-caf/msm8996/display",
