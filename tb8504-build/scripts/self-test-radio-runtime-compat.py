@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Validate exact radio source transform and GNU Make package selection."""
-import runpy,subprocess,tempfile
+import json,runpy,subprocess,tempfile
 from pathlib import Path
 here=Path(__file__).resolve().parent
 mod=runpy.run_path(str(here/'apply-radio-runtime-compat.py'))
-before=(here/'radio-runtime-device-before.mk').read_bytes()
+before=json.loads((here/'radio-runtime-device-before.json').read_text())['device_mk'].encode()
 after=mod['transform'](before)
 assert mod['transform'](after)==after
 assert before==after[:-len(mod['BLOCK'].encode())]
