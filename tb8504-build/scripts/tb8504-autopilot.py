@@ -37,6 +37,7 @@ REPO = "tzn5-web/adfree-tizen-q60r"
 BRANCH = "tb8504-android16-build"
 KNOWLEDGE_PATH = "tb8504-build/config/autopilot-knowledge.json"
 HELPERS = (
+    "apply-kernel-filelist-compat.py",
     "apply-audio-header-compat.py",
     "apply-camera-compat.py",
     "apply-runtime-cleanup.py",
@@ -949,6 +950,14 @@ class Autopilot:
                 "--patch-out", str(patch), "--report-out", str(report),
             ],
             "AUDIO_HEADER_COMPAT_STATE", "AUDIO_HEADER_COMPAT", "audio-header-compat",
+        )
+        self.run_idempotent_transform(
+            "apply-kernel-filelist-compat.py",
+            lambda report, patch: [
+                "--lineage", str(self.root / "vendor/lineage"),
+                "--refresh-file-list", "--patch-out", str(patch), "--report-out", str(report),
+            ],
+            "KERNEL_FILELIST_COMPAT_STATE", "KERNEL_FILELIST_COMPAT", "kernel-filelist-compat",
         )
         self.verify_extended_source_contracts()
         self.say("SOURCE_HEAD_GATE=PASS")

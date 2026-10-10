@@ -290,6 +290,11 @@
       "cause": "Two legacy thread entry points omit the void* parameter required by pthread_create",
       "fix": "Use void* entry(void *arg) and explicitly ignore arg; preserve the existing global-handle logic and all calibration behavior",
       "symptom": "spkr_protection.c: incompatible function pointer types in pthread_create"
+    },
+    {
+      "cause": "Kernel Make macro writes lib/modules paths into the system image file list even when vendor modules are installed under system/vendor/lib/modules.",
+      "fix": "For embedded vendor only, generate vendor/lib/modules relative entries; invalidate only the previous generated file_list.txt on first application and bind the exact vendor/lineage patch.",
+      "symptom": "FileNotFoundError for system/lib/modules/ansi_cprng.ko during CopyInputDirectory"
     }
   ],
   "partition_contract": {
@@ -534,6 +539,16 @@
       "hardware/qcom-caf/msm8996/media": {
         "head": "6cd9f642fa82d3da39ec5eef7aad6c158c2fce0f",
         "patch_sha256": "26260b2a978a8e98b63002901576e849a5aa92fbaa817066e4690c6a987dc63e"
+      },
+      "vendor/lineage": {
+        "head": "686d8669737d2207208ea21075320840b5ec8463",
+        "kernel_filelist_compatibility": {
+          "git_diff_abbrev": 40,
+          "prior_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "scope": "Only five relative module manifest entries add vendor/ when modules are installed under TARGET_OUT/vendor. Kernel module contents, signing, depmod and load behavior are unchanged.",
+          "transform": "apply-kernel-filelist-compat.py"
+        },
+        "patch_sha256": "1ad62c87f6c4de8734b9512f0ecb2a55bd8a0ed2f90478a739f02b61c9b83cfc"
       }
     },
     "workspace_repo_contract": {
