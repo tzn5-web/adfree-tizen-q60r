@@ -1222,7 +1222,7 @@ class Autopilot:
         body = r'''
 tb8504_aidl_flag="$(get_build_var RELEASE_AIDL_USE_UNFROZEN)"
 tb8504_shipping_api="$(get_build_var PRODUCT_SHIPPING_API_LEVEL)"
-tb8504_kernel_policy="$tb8504_kernel_policy"
+tb8504_kernel_policy="$(get_build_var PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS)"
 printf 'TARGET_PRODUCT=%s\n' "$TARGET_PRODUCT"
 printf 'TARGET_RELEASE=%s\n' "$TARGET_RELEASE"
 printf 'TARGET_VARIANT=%s\n' "$TARGET_BUILD_VARIANT"

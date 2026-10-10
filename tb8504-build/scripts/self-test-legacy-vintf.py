@@ -44,3 +44,19 @@ with tempfile.TemporaryDirectory() as temp:
         except SystemExit as exc:assert exc.code==2
         else:raise AssertionError('Duplicate policy accepted')
 print('LEGACY_VINTF_AND_BUILD_POLICY_SELFTEST=PASS')
+
+# Run the real release-query shell body with a successful/failed variable provider.
+# A failed query must not be converted to an empty Make boolean by printf.
+import ast,subprocess
+source=ast.parse((here/'tb8504-autopilot.py').read_text())
+method=next(n for n in ast.walk(source) if isinstance(n,ast.FunctionDef) and n.name=='release_gate')
+body=next(n.value.value for n in method.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='body' for t in n.targets))
+for wanted in ('true','false',''):
+    prefix='set -eo pipefail; set +u; get_build_var() { if [ "$1" = PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS ]; then printf "%s" "'+wanted+'"; fi; };\n'
+    result=subprocess.run(['bash','-c',prefix+body],capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
+    assert 'PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS='+wanted+'\n' in result.stdout
+prefix='set -eo pipefail; set +u; get_build_var() { if [ "$1" = PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS ]; then return 9; fi; };\n'
+result=subprocess.run(['bash','-c',prefix+body],capture_output=True,text=True)
+assert result.returncode==9 and 'PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS=' not in result.stdout
+print('VINTF_BUILD_POLICY_QUERY_FAILURE_SELFTEST=PASS')
