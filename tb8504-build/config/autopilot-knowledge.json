@@ -218,12 +218,12 @@
     },
     {
       "cause": "Android 16 lunch format requires product, release, variant",
-      "fix": "lunch lineage_TB8504 trunk_staging userdebug",
+      "fix": "lunch lineage_TB8504 bp4a userdebug",
       "symptom": "Invalid lunch combo: lineage_TB8504-userdebug"
     },
     {
       "cause": "Wrong release config selection",
-      "fix": "Pin trunk_staging and verify PLATFORM_SDK_VERSION=36, PLATFORM_VERSION=16*, LINEAGE_VERSION=23.2-*.",
+      "fix": "Pin bp4a and verify PLATFORM_SDK_VERSION=36, PLATFORM_VERSION=16*, LINEAGE_VERSION=23.2-*.",
       "symptom": "bp1a selected and SDK/platform configuration mismatch"
     },
     {
@@ -341,8 +341,8 @@
     "platform": "Android 16",
     "platform_sdk": 36,
     "product": "lineage_TB8504",
-    "reason": "Android 16 lunch requires product/release/variant. bp1a configured the wrong platform state and previously triggered SDK/config incompatibility.",
-    "release": "trunk_staging",
+    "reason": "Pinned Lineage vendor/lineage/vars/aosp_target_release selects bp4a; frozen AIDL uses Android16 matrices and REL/SDK36",
+    "release": "bp4a",
     "variant": "userdebug"
   },
   "runtime_cleanup_history": {
@@ -465,7 +465,12 @@
           "transform": "apply-camera-compat.py"
         },
         "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
-        "post_converge_patch_sha256": "a27d2e36b843d63eb29d99995d06701ecc80b8738f41ad80e9903032913710f6",
+        "legacy_vintf_compatibility": {
+          "prior_post_converge_patch_sha256": "a27d2e36b843d63eb29d99995d06701ecc80b8738f41ad80e9903032913710f6",
+          "scope": "Declare implemented Bluetooth audio2.0 and frozen/development AIDL version ranges; preserve target FCM5 and source HEAD",
+          "transform": "apply-legacy-vintf-compat.py"
+        },
+        "post_converge_patch_sha256": "9993f390b5a0cd2892f10f02d09e55f47a4e07912b94946f8dc312121fb83002",
         "post_converge_untracked_manifest_sha256": "0ecdd88670a3a5cb10d28207e4a831cfd575559b8a9d47ff5f4b1b08dbb08e7b",
         "radio_runtime_compatibility": {
           "packages": [

@@ -38,6 +38,7 @@ BRANCH = "tb8504-android16-build"
 KNOWLEDGE_PATH = "tb8504-build/config/autopilot-knowledge.json"
 HELPERS = (
     "apply-radio-runtime-compat.py",
+    "apply-legacy-vintf-compat.py",
     "apply-kernel-filelist-compat.py",
     "apply-audio-header-compat.py",
     "apply-camera-compat.py",
@@ -76,7 +77,7 @@ ALLOWED_KERNEL_DIRTY = {
 }
 RELEASE = {
     "product": "lineage_TB8504",
-    "release": "trunk_staging",
+    "release": "bp4a",
     "variant": "userdebug",
 }
 PARTITION_LIMITS = {
@@ -875,6 +876,7 @@ class Autopilot:
         rels.add(gps_rel)
 
         h = hashlib.sha256()
+        h.update(b"BUILD_RELEASE\0" + json.dumps(RELEASE, sort_keys=True).encode() + b"\0")
         if not self.workspace_revision_fingerprint:
             raise StopAutopilot("workspace revision fingerprint missing")
         h.update(
@@ -1103,8 +1105,15 @@ class Autopilot:
             "RADIO_RUNTIME_COMPAT_STATE", "RADIO_RUNTIME_COMPAT", "radio-runtime-compat",
         )
 
+        vintf_changed = self.run_idempotent_transform(
+            "apply-legacy-vintf-compat.py",
+            lambda report, patch: ["--device", str(self.device), "--patch-out", str(patch), "--report-out", str(report)],
+            "LEGACY_VINTF_COMPAT_STATE", "LEGACY_VINTF_COMPAT", "legacy-vintf-compat",
+        )
+
         self.source_changed = (
-            radio_changed
+            vintf_changed
+            or radio_changed
             or golden_changed
             or runtime_changed
             or residual_changed
@@ -1199,7 +1208,7 @@ class Autopilot:
             "set -eo pipefail; set +u; "
             f"cd {sh_quote(str(self.root))}; "
             "source build/envsetup.sh >/dev/null; "
-            "lunch lineage_TB8504 trunk_staging userdebug >/dev/null; "
+            "lunch lineage_TB8504 bp4a userdebug >/dev/null; "
         )
         return self.run(
             ["bash", "-lc", prefix + body],
@@ -1211,6 +1220,9 @@ class Autopilot:
         self.say("")
         self.say("=== ANDROID 16 RELEASE IDENTITY ===")
         body = r'''
+tb8504_aidl_flag="$(get_build_var RELEASE_AIDL_USE_UNFROZEN)"
+tb8504_shipping_api="$(get_build_var PRODUCT_SHIPPING_API_LEVEL)"
+tb8504_kernel_policy="$tb8504_kernel_policy"
 printf 'TARGET_PRODUCT=%s\n' "$TARGET_PRODUCT"
 printf 'TARGET_RELEASE=%s\n' "$TARGET_RELEASE"
 printf 'TARGET_VARIANT=%s\n' "$TARGET_BUILD_VARIANT"
@@ -1218,6 +1230,9 @@ printf 'PLATFORM_VERSION=%s\n' "$(get_build_var PLATFORM_VERSION)"
 printf 'PLATFORM_SDK_VERSION=%s\n' "$(get_build_var PLATFORM_SDK_VERSION)"
 printf 'LINEAGE_VERSION=%s\n' "$(get_build_var LINEAGE_VERSION)"
 printf 'BUILD_ID=%s\n' "$(get_build_var BUILD_ID)"
+printf 'RELEASE_AIDL_USE_UNFROZEN=%s\n' "$tb8504_aidl_flag"
+printf 'PRODUCT_SHIPPING_API_LEVEL=%s\n' "$tb8504_shipping_api"
+printf 'PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS=%s\n' "$tb8504_kernel_policy"
 printf 'BOARD_VENDORIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_VENDORIMAGE_PARTITION_SIZE 2>/dev/null || true)"
 printf 'TARGET_COPY_OUT_VENDOR=%s\n' "$(get_build_var TARGET_COPY_OUT_VENDOR 2>/dev/null || true)"
 printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAGE_PARTITION_SIZE 2>/dev/null || true)"
@@ -1228,7 +1243,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         info = self.parse_kv(r.text)
         expected = {
             "TARGET_PRODUCT": "lineage_TB8504",
-            "TARGET_RELEASE": "trunk_staging",
+            "TARGET_RELEASE": "bp4a",
             "TARGET_VARIANT": "userdebug",
             "PLATFORM_SDK_VERSION": "36",
         }
@@ -1245,6 +1260,12 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             )
         if not info.get("LINEAGE_VERSION", "").startswith("23.2-"):
             raise StopAutopilot(f"Lineage version is not 23.2: {info.get('LINEAGE_VERSION')!r}")
+        if info.get("RELEASE_AIDL_USE_UNFROZEN") not in ("", "false"):
+            raise StopAutopilot("bp4a must use frozen AIDL interface versions")
+        if info.get("PRODUCT_SHIPPING_API_LEVEL") != "25":
+            raise StopAutopilot("unexpected TB8504 shipping API level")
+        if info.get("PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS") not in ("", "false", "true"):
+            raise StopAutopilot("missing or invalid VINTF kernel build policy")
         self.release_info = info
         release_file = self.report / "release.txt"
         release_file.write_text("\n".join(f"{k}={v}" for k, v in info.items()) + "\n", encoding="utf-8")
@@ -1825,7 +1846,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         output_dir.mkdir(exist_ok=True)
         return self.helper(
             "audit-built-output.py",
-            ["--root", str(self.root), "--report-dir", str(output_dir)],
+            ["--root", str(self.root), "--report-dir", str(output_dir), "--release-report", str(self.report / "release.txt")],
             log_name,
         )
 

@@ -158,7 +158,7 @@ def read_release_report(path: Path) -> None:
             k, v = raw.split("=", 1)
             values[k.strip()] = v.strip()
     expected = {
-        "TARGET_RELEASE": "trunk_staging",
+        "TARGET_RELEASE": "bp4a",
         "TARGET_PRODUCT": "lineage_TB8504",
         "TARGET_VARIANT": "userdebug",
         "PLATFORM_SDK_VERSION": "36",

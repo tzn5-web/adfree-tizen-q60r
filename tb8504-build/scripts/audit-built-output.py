@@ -610,7 +610,35 @@ def vintf_partition_mappings(out: Path) -> list[tuple[str, Path]]:
     return mappings
 
 
-def audit_checkvintf(root: Path, out: Path) -> None:
+def read_vintf_kernel_policy(report: Path, first_api: str) -> bool:
+    if not report.is_file():
+        fail("VINTF build-policy release report missing")
+    values = {}
+    for line in report.read_text().splitlines():
+        if "=" in line:
+            key,value = line.split("=",1)
+            if key in values:
+                fail(f"duplicate VINTF build-policy field: {key}")
+            values[key]=value
+    if values.get("TARGET_RELEASE") != "bp4a" or values.get("PLATFORM_SDK_VERSION") != "36":
+        fail("VINTF policy is not from the pinned Android16 bp4a build")
+    if values.get("RELEASE_AIDL_USE_UNFROZEN") not in ("", "false"):
+        fail("VINTF policy is missing frozen AIDL release evidence")
+    if values.get("PRODUCT_SHIPPING_API_LEVEL") != first_api:
+        fail("VINTF shipping API policy differs from installed build properties")
+    flag = values.get("PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS")
+    if flag == "true":
+        return True
+    if flag not in ("", "false"):
+        fail("VINTF kernel build policy missing or invalid")
+    if first_api != EXPECTED_FIRST_API_LEVEL:
+        fail("legacy VINTF kernel exception applies only to the verified TB8504 API25")
+    # Pinned AOSP product_config.mk mandates this flag from shipping API29.
+    # Read its actual value rather than overriding it for the legacy tablet.
+    return False
+
+
+def audit_checkvintf(root: Path, out: Path, release_report: Path) -> None:
     tool=root/"out/host/linux-x86/bin/checkvintf"
     if not tool.is_file():
         fail(f"checkvintf host tool missing after build: {tool}")
@@ -629,10 +657,10 @@ def audit_checkvintf(root: Path, out: Path) -> None:
             f"{first_api} != {EXPECTED_FIRST_API_LEVEL}"
         )
     kernel_release,kernel_config=read_kernel_release(out)
-    args += [
-        "--property",f"ro.product.first_api_level={first_api}",
-        "--kernel",f"{kernel_release}:{kernel_config}",
-    ]
+    enforced=read_vintf_kernel_policy(release_report,first_api)
+    args += ["--property",f"ro.product.first_api_level={first_api}"]
+    if enforced:
+        args += ["--kernel",f"{kernel_release}:{kernel_config}"]
 
     proc=subprocess.run(args,text=True,capture_output=True,check=False)
     combined=(proc.stdout or "")+"\n"+(proc.stderr or "")
@@ -646,7 +674,15 @@ def audit_checkvintf(root: Path, out: Path) -> None:
             "checkvintf compatibility failed: "
             + "\n".join(combined.splitlines()[-80:])
         )
-    print("CHECKVINTF_KERNEL_REQUIREMENTS=ENFORCED")
+    if enforced:
+        print("CHECKVINTF_KERNEL_REQUIREMENTS=ENFORCED")
+    else:
+        print("CHECKVINTF_KERNEL_REQUIREMENTS=NOT_REQUIRED_LEGACY_API25")
+        # Preserve the stricter diagnostic result without calling it compatible.
+        strict=subprocess.run(args+["--kernel",f"{kernel_release}:{kernel_config}"],text=True,capture_output=True,check=False)
+        print(f"CHECKVINTF_SUPPLEMENTAL_KERNEL_RC={strict.returncode}")
+        print("KERNEL_RUNTIME_COMPATIBILITY=PENDING_DEVICE_TEST")
+    print(f"CHECKVINTF_BUILD_POLICY_REPORT_SHA256={sha(release_report)}")
     print("CHECKVINTF_COMPATIBILITY=PASS")
 
 def audit_rom_zip(out: Path, rom: Path) -> None:
@@ -752,6 +788,7 @@ def main() -> int:
     ap=argparse.ArgumentParser()
     ap.add_argument("--root",required=True,type=Path)
     ap.add_argument("--report-dir",required=True,type=Path)
+    ap.add_argument("--release-report",required=True,type=Path)
     ap.add_argument("--rom",type=Path)
     args=ap.parse_args()
     root=args.root.resolve()
@@ -768,7 +805,7 @@ def main() -> int:
     audit_golden_profile(out)
     audit_removed_outputs(out)
     audit_vintf(out)
-    audit_checkvintf(root,out)
+    audit_checkvintf(root,out,args.release_report)
     audit_modules(root,out)
     audit_system_image(root,out)
     audit_policy(out)

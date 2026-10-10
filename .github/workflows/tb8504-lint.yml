@@ -105,6 +105,10 @@ jobs:
           set -o pipefail
           python3 tb8504-build/scripts/tb8504-autopilot.py --self-test
 
+      - name: Legacy VINTF and build policy self-test
+        shell: bash
+        run: python3 tb8504-build/scripts/self-test-legacy-vintf.py
+
       - name: Built VINTF semantics self-test
         shell: bash
         run: python3 tb8504-build/scripts/self-test-built-vintf.py

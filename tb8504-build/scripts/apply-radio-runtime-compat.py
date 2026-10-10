@@ -5,6 +5,7 @@ from pathlib import Path
 
 HEAD = '245eadab3c1e1732da1e4c1c99b2cc2fed74b91b'
 PRE_PATCH_SHA = '3d29fd98d76c4512a33cf0ee9042777a7018374de1c487686812267e95e475b6'
+FINAL_VINTF_PATCH_SHA = '9993f390b5a0cd2892f10f02d09e55f47a4e07912b94946f8dc312121fb83002'
 POST_PATCH_SHA = 'a27d2e36b843d63eb29d99995d06701ecc80b8738f41ad80e9903032913710f6'
 PRE_FILE_SHA = 'c3b9d9c2bfbec91c93e5374a5bfbf23d1cedf85d4b6bc20c86ecf3123a2146a4'
 POST_FILE_SHA = 'aed1d31f110c5823b3002c8371d2edd5f31b33e33320d12e64925ec11b8e6670'
@@ -24,7 +25,7 @@ def apply(device):
     if git('rev-parse','HEAD').decode().strip()!=HEAD:raise ValueError('Device HEAD differs from approved source')
     if git('diff','--cached','--name-only').strip():raise ValueError('Staged device changes are not approved')
     patch_sha=digest(git('diff','--binary','HEAD'))
-    if patch_sha not in (PRE_PATCH_SHA,POST_PATCH_SHA):raise ValueError('Full device source patch is unreviewed')
+    if patch_sha not in (PRE_PATCH_SHA,POST_PATCH_SHA,FINAL_VINTF_PATCH_SHA):raise ValueError('Full device source patch is unreviewed')
     path=device/'device.mk'
     if path.is_symlink() or not path.is_file():raise ValueError('device.mk is not a regular source file')
     current=path.read_bytes();desired=transform(current)
@@ -33,7 +34,7 @@ def apply(device):
         if patch_sha!=PRE_PATCH_SHA:raise ValueError('Device preimage contract mismatch')
         path.write_bytes(desired)
     actual=digest(git('diff','--binary','HEAD'))
-    if actual!=POST_PATCH_SHA:
+    if actual not in (POST_PATCH_SHA,FINAL_VINTF_PATCH_SHA) or (actual==FINAL_VINTF_PATCH_SHA and (changed or patch_sha!=FINAL_VINTF_PATCH_SHA)):
         if changed:path.write_bytes(current)
         raise ValueError('Full device postimage mismatch; source mutation reverted')
     patch=''.join(difflib.unified_diff(current.decode().splitlines(True),desired.decode().splitlines(True),fromfile='a/device.mk',tofile='b/device.mk'))

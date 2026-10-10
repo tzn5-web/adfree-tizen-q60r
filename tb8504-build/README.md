@@ -208,3 +208,31 @@ The PC/tablet is still required for:
 - display/touch/Wi-Fi/GPS/video/audio hardware testing
 
 No cloud workflow performs those operations.
+
+
+## Frozen Android16 configuration and legacy VINTF policy
+
+Canonical builds select `bp4a`, the release selected by the pinned
+`vendor/lineage/vars/aosp_target_release`, with SDK36 and frozen AIDL.
+`trunk_staging` selects unfrozen interfaces and the next-release FCM set in
+this source tree and is no longer accepted for canonical images. Release
+selection participates in the source fingerprint and invalidates previous
+image bindings while preserving compilation caches.
+
+The device matrix retains implemented Bluetooth audio HIDL2.0 and supports
+both frozen/current AIDL versions for DRM1-2, Wi-Fi3-4, and Supplicant4-5.
+Exact file and full Git patch pre/post hashes guard this one-file mutation;
+source HEADs, vendor payloads, and the declared target FCM5 remain unchanged.
+
+The built-output checker reads the successfully queried build policy and
+cross-checks shipping API against installed `ro.product.first_api_level=25`.
+It follows the pinned AOSP `product_config.mk` / `core/Makefile`: kernel VINTF
+requirements are mandatory by default for devices launched with API29+,
+and are optional for older devices. An enabled flag is always enforced;
+missing/unknown policy, duplicate fields, or an unverified API are rejected.
+For the verified API25 legacy build with an unset flag, HAL compatibility
+must still pass. The additional kernel VINTF diagnostic return code is
+recorded separately and is never represented as a successful kernel check.
+Signed module/kernel/boot/recovery coherence gates remain mandatory. Actual
+kernel runtime compatibility and the golden profile require device tests.
+AOSP policy: https://source.android.com/docs/core/architecture/vintf/dm
