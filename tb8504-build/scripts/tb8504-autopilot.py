@@ -37,6 +37,7 @@ REPO = "tzn5-web/adfree-tizen-q60r"
 BRANCH = "tb8504-android16-build"
 KNOWLEDGE_PATH = "tb8504-build/config/autopilot-knowledge.json"
 HELPERS = (
+    "apply-camera-compat.py",
     "apply-runtime-cleanup.py",
     "apply-residual-cleanup.py",
     "apply-product-compat.py",
@@ -1038,6 +1039,16 @@ class Autopilot:
             "product-compat",
         )
 
+        camera_changed = self.run_idempotent_transform(
+            "apply-camera-compat.py",
+            lambda report, patch: [
+                "--device", str(self.device),
+                "--patch-out", str(patch),
+                "--report-out", str(report),
+            ],
+            "CAMERA_COMPAT_STATE", "CAMERA_COMPAT", "camera-compat",
+        )
+
         performance_changed = self.run_idempotent_transform(
             "apply-performance-compat.py",
             lambda report, patch: [
@@ -1065,6 +1076,7 @@ class Autopilot:
             or runtime_changed
             or residual_changed
             or product_changed
+            or camera_changed
             or performance_changed
         )
         self.say(f"SOURCE_CHANGED_THIS_RUN={'YES' if self.source_changed else 'NO'}")
@@ -1470,6 +1482,12 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
     def classify_failure(self, text: str, target: str) -> tuple[str, str] | None:
         rules: list[tuple[str, str, tuple[str, ...], bool]] = [
             (
+                "camera_compat",
+                "unguarded Qualcomm camera metadata callback in VANILLA_HAL",
+                ("error: use of undeclared identifier 'CAMERA_MSG_META_DATA'",),
+                False,
+            ),
+            (
                 "product_compat",
                 "legacy product property override",
                 (
@@ -1568,7 +1586,7 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             self.release_gate()
             return True
 
-        if handler == "source_convergence":
+        if handler in {"source_convergence", "camera_compat"}:
             self.converge_sources()
             self.release_gate()
             return True

@@ -439,8 +439,13 @@
     },
     "dynamic_primary_repos": {
       "device/lenovo/TB8504": {
+        "camera_compatibility": {
+          "prior_post_converge_patch_sha256": "40521b1afbc30462dbebbdf474579460eba2a8f6611090555a5d5175b3d9be1f",
+          "scope": "Guard OTP and dual-camera vendor metadata callbacks in existing VANILLA_HAL build",
+          "transform": "apply-camera-compat.py"
+        },
         "head": "245eadab3c1e1732da1e4c1c99b2cc2fed74b91b",
-        "post_converge_patch_sha256": "40521b1afbc30462dbebbdf474579460eba2a8f6611090555a5d5175b3d9be1f",
+        "post_converge_patch_sha256": "3d29fd98d76c4512a33cf0ee9042777a7018374de1c487686812267e95e475b6",
         "post_converge_untracked_manifest_sha256": "0ecdd88670a3a5cb10d28207e4a831cfd575559b8a9d47ff5f4b1b08dbb08e7b",
         "status": "PROVENANCE_ACCEPTED_AFTER_STAGE8N"
       },
