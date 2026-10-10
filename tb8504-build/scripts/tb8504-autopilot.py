@@ -1817,6 +1817,10 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         self.say(f"{kind.upper()}_BASIC_IMAGE_AUDIT=PASS")
 
     def run_built_output_audit(self, log_name: str) -> CommandResult:
+        if not getattr(self, "_built_output_tools_ready", False):
+            self.build_target("checkvintf e2fsck simg2img")
+            self._built_output_tools_ready = True
+            self.say("BUILT_OUTPUT_HOST_TOOLS=PASS")
         output_dir = self.report / "actual-built-output"
         output_dir.mkdir(exist_ok=True)
         return self.helper(
