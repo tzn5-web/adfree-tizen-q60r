@@ -254,3 +254,9 @@ ramdisk. Exact OTA/local boot SHA equality remains mandatory. OTA identity
 accepts structured TB-8504X/F model aliases and matches built properties;
 actual Android16 release and SDK36 are checked independently of the pinned
 Lenovo compatibility fingerprint. Hardware runtime testing remains pending.
+
+COPY_IMAGES_FOR_TARGET_FILES_ZIP=true also copies the built system
+filesystem and generates its map using AOSP map_file_generator. Otherwise
+releasetools independently recreates the ext4 image with different blocks.
+The final auditor still compares every OTA new/zero range with the audited
+system image. The runner checks actual Make values before final packaging.

@@ -2027,9 +2027,21 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
             and row.get("sha256") == self.sha_file(p)
         )
 
+    def require_ota_image_copy_policy(self) -> None:
+        r = self.android_shell(
+            'test "$(get_build_var AB_OTA_UPDATER)" = false && '
+            'test "$(get_build_var BOARD_COPY_BOOT_IMAGE_TO_TARGET_FILES)" = true && '
+            'test "$(get_build_var COPY_IMAGES_FOR_TARGET_FILES_ZIP)" = true',
+            "audit-ota-image-copy-policy.log",
+        )
+        if r.rc != 0:
+            raise StopAutopilot("OTA must reuse audited single-slot boot/system images")
+        self.say("OTA_AUDITED_IMAGE_COPY_POLICY=PASS")
+
     def full_rom(self) -> None:
         self.say("")
         self.say("=== FINAL FULL ROM BUILD ===")
+        self.require_ota_image_copy_policy()
         bacon_started = time.time()
         self.build_target("bacon")
         self.source_changed = False
