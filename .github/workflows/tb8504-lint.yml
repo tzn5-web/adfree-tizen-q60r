@@ -133,6 +133,10 @@ jobs:
         shell: bash
         run: python3 tb8504-build/scripts/self-test-camera-compat.py
 
+      - name: Final package identity self-test
+        shell: bash
+        run: python3 tb8504-build/scripts/self-test-final-package.py
+
       - name: Helper behavior self-tests
         shell: bash
         run: |

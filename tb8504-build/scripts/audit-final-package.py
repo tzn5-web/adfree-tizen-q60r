@@ -57,6 +57,35 @@ def parse_metadata(text: str) -> dict[str,str]:
     return out
 
 
+def audit_ota_identity(meta: dict[str,str], props: dict[str,str]) -> set[str]:
+    pre_devices={
+        x.strip()
+        for x in re.split(r"[|,]",meta.get("pre-device",""))
+        if x.strip()
+    }
+    if not (pre_devices & OTA_DEVICE_ALIASES):
+        fail(f"OTA pre-device has no supported TB8504 alias: {sorted(pre_devices)}")
+
+    # The pinned Lenovo device tree retains the original compatibility
+    # fingerprint. Validate its structured model fields, then separately
+    # require actual Android 16 output properties and matching OTA metadata.
+    fingerprint=meta.get("post-build","")
+    fields=re.fullmatch(r"([^/:]+)/([^/:]+)/([^/:]+):([^/:]+)/([^/:]+)/([^/:]+):([^/:]+)/([^/:]+)",fingerprint)
+    aliases=OTA_DEVICE_ALIASES | {DEVICE}
+    if not fields or fields[2] not in aliases or fields[3] not in aliases:
+        fail(f"OTA post-build fingerprint does not identify TB8504: {fingerprint}")
+    if meta.get("post-sdk-level") != SDK:
+        fail(f"OTA metadata SDK mismatch: {meta.get('post-sdk-level')}")
+    if props.get("ro.build.version.release") != "16" or props.get("ro.build.version.sdk") != SDK:
+        fail("built output must be Android 16 / SDK 36 independently of compatibility fingerprint")
+    if not props.get("ro.build.fingerprint") or fingerprint != props["ro.build.fingerprint"]:
+        fail("OTA post-build fingerprint mismatch with built output")
+    incremental=props.get("ro.build.version.incremental","")
+    if not incremental or meta.get("post-build-incremental") != incremental:
+        fail("OTA incremental mismatch with built output")
+    return pre_devices
+
+
 def parse_ranges(raw: str) -> list[tuple[int,int]]:
     try:
         nums=[int(x) for x in raw.strip().split(",") if x!=""]
@@ -343,44 +372,8 @@ def main() -> int:
         if ota_type == "AB":
             fail("unexpected A/B OTA for non-A/B TB8504")
 
-        pre_devices={
-            x.strip()
-            for x in re.split(r"[|,]",meta.get("pre-device",""))
-            if x.strip()
-        }
-        if not (pre_devices & OTA_DEVICE_ALIASES):
-            fail(
-                "OTA pre-device does not contain a supported TB8504 alias: "
-                f"{sorted(pre_devices)}"
-            )
-        if DEVICE not in meta.get("post-build",""):
-            fail(
-                f"OTA post-build fingerprint does not identify {DEVICE}: "
-                f"{meta.get('post-build','')}"
-            )
-
-        if meta.get("post-sdk-level") and meta["post-sdk-level"] != SDK:
-            fail(f"OTA metadata SDK mismatch: {meta.get('post-sdk-level')}")
-
         props=props_from_output(out)
-        fingerprint=props.get("ro.build.fingerprint","")
-        incremental=props.get("ro.build.version.incremental","")
-        if not fingerprint:
-            fail("built output fingerprint missing")
-        if meta.get("post-build") and meta["post-build"] != fingerprint:
-            fail(
-                f"OTA post-build fingerprint mismatch: "
-                f"{meta['post-build']} != {fingerprint}"
-            )
-        if (
-            incremental
-            and meta.get("post-build-incremental")
-            and meta["post-build-incremental"] != incremental
-        ):
-            fail(
-                "OTA incremental mismatch: "
-                f"{meta['post-build-incremental']} != {incremental}"
-            )
+        pre_devices=audit_ota_identity(meta,props)
 
         update_payloads={
             "payload.bin",
