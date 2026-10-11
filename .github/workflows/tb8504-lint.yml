@@ -637,6 +637,9 @@ jobs:
           print("TB8504_PROVENANCE_PROMOTION_SELFTEST=PASS")
           PY
 
+      - name: Legacy recovery OTA guard
+        run: python3 tb8504-build/scripts/self-test-legacy-ota.py
+
       - name: Cloud lane summary
         shell: bash
         run: |

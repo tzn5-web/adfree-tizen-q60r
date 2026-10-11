@@ -1111,8 +1111,15 @@ class Autopilot:
             "LEGACY_VINTF_COMPAT_STATE", "LEGACY_VINTF_COMPAT", "legacy-vintf-compat",
         )
 
+        ota_changed = self.run_idempotent_transform(
+            "apply-legacy-ota-compat.py",
+            lambda report, patch: ["--device", str(self.device), "--patch-out", str(patch), "--report-out", str(report)],
+            "LEGACY_OTA_COMPAT_STATE", "LEGACY_OTA_COMPAT", "legacy-ota-compat",
+        )
+
         self.source_changed = (
-            vintf_changed
+            ota_changed
+            or vintf_changed
             or radio_changed
             or golden_changed
             or runtime_changed

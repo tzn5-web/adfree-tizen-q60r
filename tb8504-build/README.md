@@ -236,3 +236,13 @@ recorded separately and is never represented as a successful kernel check.
 Signed module/kernel/boot/recovery coherence gates remain mandatory. Actual
 kernel runtime compatibility and the golden profile require device tests.
 AOSP policy: https://source.android.com/docs/core/architecture/vintf/dm
+
+
+## TB8504 recovery OTA packaging
+
+Android16 core/board_config.mk defaults an unset AB_OTA_UPDATER to true.
+The exact TB8504 source fstab uses unsuffixed boot/system partitions without
+slotselect, with a dedicated recovery. The guarded BoardConfig transform
+sets AB_OTA_UPDATER := false. It preserves every prior approved patch and
+source HEAD. The canonical build regenerates metadata/images and verifies
+the complete recovery OTA package; no artificial A/B partition list is added.
