@@ -277,3 +277,13 @@ The exact build/make HEAD, entire Makefile postimage and full Git patch
 are independently pinned and checked before compiling. Regression tests
 execute the real Make recipe and pinned sparse reader, preserve copied
 image bytes and reject an allocated file pointing outside the care map.
+
+The map producer now has an explicit --legacy_non_ab mode selected
+only when AB_OTA_UPDATER=false. It classifies directories from their
+actual inode mode and keeps their allocated extents under metadata pseudo
+names. It omits only unallocated free-space extents. Regular files retain
+their exact names and extents, and A/B output is unchanged. This replaces
+the previous post-generation text filter. Both complete source patches
+(build/make and system/update_engine) and immutable HEADs are pinned.
+The regression test executes pinned GetSparseImage, including archive
+membership, and compiles the actual C++ directory-name formatter.

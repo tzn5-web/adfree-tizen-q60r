@@ -5,10 +5,11 @@ from pathlib import Path
 HEAD='e5aaa62172df0f321e68133fa30f42316376bfe8'
 FILE='core/Makefile'
 PRE_FILE_SHA='fec7d1d596af088e3c75e6eff5ee355ee3a62bd09565be377fbc24a4030d15d0'
-POST_FILE_SHA='348224a00e7c5f64d21b8622cc91044764d3c7a23bc9231aa41b0f28c2644fa7'
-POST_PATCH_SHA='cde9b61273137eca4a645c9587cb11ff533888bdaa2a45ad0120314059f1898c'
+OLD_FILE_SHA='348224a00e7c5f64d21b8622cc91044764d3c7a23bc9231aa41b0f28c2644fa7'
+POST_FILE_SHA='750ea2ffdc3a89c3858f52cba7099856695b058f496d8d9ebb023567608198fb'
+POST_PATCH_SHA='8aef916bf9894963d340f89dd945bd26dec783e12ef5d3c509222bcbf96d2f99'
 ORIGINAL='$(if $(3),$(HOST_OUT_EXECUTABLES)/map_file_generator $(1) $(2)/$(3).map))'
-REPLACEMENT="$(if $(3),$(HOST_OUT_EXECUTABLES)/map_file_generator $(1) $(2)/$(3).map$(if $(filter false,$(AB_OTA_UPDATER)),; sed -i '/^<free-space> /d' $(2)/$(3).map)))"
+REPLACEMENT='$(if $(3),$(HOST_OUT_EXECUTABLES)/map_file_generator $(1) $(2)/$(3).map$(if $(filter false,$(AB_OTA_UPDATER)), --legacy_non_ab)))'
 digest=lambda data:hashlib.sha256(data).hexdigest()
 
 def transform(text):
@@ -29,7 +30,7 @@ def apply(repo):
     desired=transform(original.decode()).encode()
     if digest(desired)!=POST_FILE_SHA:raise ValueError('Makefile reviewed postimage mismatch')
     current=path.read_bytes()
-    if current not in (original,desired):raise ValueError('Unreviewed Makefile content')
+    if digest(current) not in (PRE_FILE_SHA,OLD_FILE_SHA,POST_FILE_SHA):raise ValueError('Unreviewed Makefile content')
     changed=current!=desired
     subprocess.run(['git','config','--local','core.abbrev','40'],cwd=repo,check=True)
     if changed:path.write_bytes(desired)

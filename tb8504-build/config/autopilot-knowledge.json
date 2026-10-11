@@ -536,10 +536,10 @@
         "head": "e5aaa62172df0f321e68133fa30f42316376bfe8",
         "legacy_ota_map_compatibility": {
           "git_diff_abbrev": 40,
-          "scope": "Only for explicit AB_OTA_UPDATER=false remove the unallocated <free-space> pseudo entry from generated image file maps; all allocated file and metadata entries and strict sparse and final payload validation retained",
+          "scope": "Pass explicit --legacy_non_ab to exact map generator only for AB_OTA_UPDATER=false; no map text filtering",
           "transform": "apply-legacy-ota-map-compat.py"
         },
-        "patch_sha256": "cde9b61273137eca4a645c9587cb11ff533888bdaa2a45ad0120314059f1898c"
+        "patch_sha256": "8aef916bf9894963d340f89dd945bd26dec783e12ef5d3c509222bcbf96d2f99"
       },
       "device/qcom/sepolicy-legacy-um": {
         "head": "8204f3a2895517f82bcc76e69996e51d4ea820fc",
@@ -579,6 +579,15 @@
       "hardware/qcom-caf/msm8996/media": {
         "head": "6cd9f642fa82d3da39ec5eef7aad6c158c2fce0f",
         "patch_sha256": "26260b2a978a8e98b63002901576e849a5aa92fbaa817066e4690c6a987dc63e"
+      },
+      "system/update_engine": {
+        "head": "fc83053aa2a71885ba8615da9946033adf3462ce",
+        "legacy_map_generator_compatibility": {
+          "git_diff_abbrev": 40,
+          "scope": "In explicit legacy non-A/B mode omit unallocated free-space pseudo ranges and retain allocated directories under metadata pseudo names. Preserve all allocated file extents and A/B output",
+          "transform": "apply-legacy-map-generator-compat.py"
+        },
+        "patch_sha256": "da34e4c169f851ccc7e48f9da5e1f0eef3e27ee70081322290f29bd83f7e0dab"
       },
       "vendor/lineage": {
         "head": "686d8669737d2207208ea21075320840b5ec8463",

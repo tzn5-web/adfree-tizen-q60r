@@ -41,6 +41,7 @@ HELPERS = (
     "apply-legacy-vintf-compat.py",
     "apply-legacy-ota-compat.py",
     "apply-legacy-ota-map-compat.py",
+    "apply-legacy-map-generator-compat.py",
     "apply-kernel-filelist-compat.py",
     "apply-audio-header-compat.py",
     "apply-camera-compat.py",
@@ -971,6 +972,14 @@ class Autopilot:
                 "--patch-out", str(patch), "--report-out", str(report),
             ],
             "LEGACY_OTA_MAP_COMPAT_STATE", "LEGACY_OTA_MAP_COMPAT", "legacy-ota-map-compat",
+        )
+        self.run_idempotent_transform(
+            "apply-legacy-map-generator-compat.py",
+            lambda report, patch: [
+                "--update-engine", str(self.root / "system/update_engine"),
+                "--patch-out", str(patch), "--report-out", str(report),
+            ],
+            "LEGACY_MAP_GENERATOR_COMPAT_STATE", "LEGACY_MAP_GENERATOR_COMPAT", "legacy-map-generator-compat",
         )
         self.verify_extended_source_contracts()
         self.say("SOURCE_HEAD_GATE=PASS")
@@ -2282,6 +2291,7 @@ def static_self_test() -> None:
     integrity = knowledge.get("source_integrity_contracts", {})
     static = integrity.get("static_target_repos", {})
     expected_static = {
+        "system/update_engine",
         "build/make",
         "vendor/lineage",
         "hardware/qcom-caf/msm8996/audio",
