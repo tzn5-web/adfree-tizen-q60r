@@ -2031,7 +2031,8 @@ printf 'BOARD_SYSTEMIMAGE_PARTITION_SIZE=%s\n' "$(get_build_var BOARD_SYSTEMIMAG
         r = self.android_shell(
             'test "$(get_build_var AB_OTA_UPDATER)" = false && '
             'test "$(get_build_var BOARD_COPY_BOOT_IMAGE_TO_TARGET_FILES)" = true && '
-            'test "$(get_build_var COPY_IMAGES_FOR_TARGET_FILES_ZIP)" = true',
+            'test "$(get_build_var COPY_IMAGES_FOR_TARGET_FILES_ZIP)" = true && '
+            'test "$(get_build_var BOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE)" = ext4',
             "audit-ota-image-copy-policy.log",
         )
         if r.rc != 0:

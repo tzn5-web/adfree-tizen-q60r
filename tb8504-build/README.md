@@ -260,3 +260,9 @@ filesystem and generates its map using AOSP map_file_generator. Otherwise
 releasetools independently recreates the ext4 image with different blocks.
 The final auditor still compares every OTA new/zero range with the audited
 system image. The runner checks actual Make values before final packaging.
+
+The copy recipe also requires explicit BOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE=ext4.
+TARGET_USERIMAGES_USE_EXT4 selects ext4 for creation but does not satisfy
+the copy macro filesystem filter. The exact pinned macro is exercised with
+GNU Make dry runs for explicit ext4, empty type, disabled copying and f2fs.
+The actual Make policy gate checks all four fields before final packaging.

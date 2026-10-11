@@ -1,0 +1,5 @@
+{
+  "macro": "define copy-image-and-generate-map\n  $(if $(COPY_IMAGES_FOR_TARGET_FILES_ZIP), \\\n    $(eval _supported_fs_for_map_file_generator := erofs ext%) \\\n    $(eval _img := $(call to-upper,$(3))) \\\n    $(if $(3),$(eval _map_fs_type := $(BOARD_$(_img)IMAGE_FILE_SYSTEM_TYPE)),\\\n      $(eval _no_map_file := \"true\")) \\\n    $(if $(filter $(_supported_fs_for_map_file_generator),$(_map_fs_type))$(_no_map_file),\\\n      mkdir -p $(2); \\\n      cp $(1) $(2); \\\n      $(if $(3),$(HOST_OUT_EXECUTABLES)/map_file_generator $(1) $(2)/$(3).map)) \\\n    $(eval _img :=) \\\n    $(eval _map_fs_type :=) \\\n    $(eval _no_map_file :=) \\\n  )\nendef\n",
+  "sha256": "2cef4b32db20eb01abc447e767cb05db4744b3795f92ad70bd2a3e0d0af820f1",
+  "source": "build/make/core/Makefile from the pinned Android workspace"
+}
