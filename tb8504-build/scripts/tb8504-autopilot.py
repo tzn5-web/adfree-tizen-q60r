@@ -39,6 +39,7 @@ KNOWLEDGE_PATH = "tb8504-build/config/autopilot-knowledge.json"
 HELPERS = (
     "apply-radio-runtime-compat.py",
     "apply-legacy-vintf-compat.py",
+    "apply-legacy-ota-compat.py",
     "apply-kernel-filelist-compat.py",
     "apply-audio-header-compat.py",
     "apply-camera-compat.py",

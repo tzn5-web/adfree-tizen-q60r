@@ -14,4 +14,6 @@ for bad in (before+b'# unknown\n',after+b'# unknown\n'):
 # The actual helper rejects staged changes, unknown HEAD and full-patch edits.
 source=(scripts/'apply-legacy-ota-compat.py').read_text()
 assert "git('diff','--cached','--name-only')" in source and 'source mutation reverted' in source
+runner=runpy.run_path(str(scripts/'tb8504-autopilot.py'))
+assert 'apply-legacy-ota-compat.py' in runner['HELPERS']
 print('LEGACY_NON_AB_OTA_SELFTEST=PASS')
