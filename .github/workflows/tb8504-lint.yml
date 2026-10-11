@@ -644,6 +644,9 @@ jobs:
       - name: Legacy recovery OTA guard
         run: python3 tb8504-build/scripts/self-test-legacy-ota.py
 
+      - name: Legacy sparse file-map compatibility
+        run: python3 tb8504-build/scripts/self-test-legacy-ota-map.py
+
       - name: Cloud lane summary
         shell: bash
         run: |

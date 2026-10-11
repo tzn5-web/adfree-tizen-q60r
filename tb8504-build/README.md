@@ -266,3 +266,14 @@ TARGET_USERIMAGES_USE_EXT4 selects ext4 for creation but does not satisfy
 the copy macro filesystem filter. The exact pinned macro is exercised with
 GNU Make dry runs for explicit ext4, empty type, disabled copying and f2fs.
 The actual Make policy gate checks all four fields before final packaging.
+
+For the legacy non-A/B OTA, the pinned map_file_generator emits a
+<free-space> pseudo entry that refers to unallocated sparse DONT_CARE
+blocks. A guarded build/make recipe removes only this pseudo entry
+when AB_OTA_UPDATER is explicitly false. All allocated file and metadata
+entries remain intact; the strict pinned SparseImage parser and final
+OTA/system byte comparisons stay mandatory. A/B recipes are unchanged.
+The exact build/make HEAD, entire Makefile postimage and full Git patch
+are independently pinned and checked before compiling. Regression tests
+execute the real Make recipe and pinned sparse reader, preserve copied
+image bytes and reject an allocated file pointing outside the care map.
