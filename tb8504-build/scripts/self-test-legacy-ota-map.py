@@ -14,13 +14,13 @@ def main():
     else:raise AssertionError('Duplicate recipe accepted')
     with tempfile.TemporaryDirectory(prefix='tb8504-strict-map-') as td:
         base=Path(td);(base/'host/bin').mkdir(parents=True)
-        raw=(struct.pack('<I4H4I',0xed26ff3a,1,0,28,12,4096,4,2,0)
-             +struct.pack('<2H2I',0xcac1,0,3,12+12288)+b'A'*12288
+        raw=(struct.pack('<I4H4I',0xed26ff3a,1,0,28,12,4096,5,2,0)
+             +struct.pack('<2H2I',0xcac1,0,4,12+16384)+b'A'*16384
              +struct.pack('<2H2I',0xcac3,0,1,12))
         image=base/'system.img';image.write_bytes(raw)
-        original_map='/system/real-file 1\n/lost+found 2\n<free-space> 3\n'
+        original_map='/system/real-file 1\n/lost+found 2\n/system/link-file 3\n<free-space> 4\n'
         generator=base/'host/bin/map_file_generator'
-        generator.write_text('#!/bin/sh\nif [ "${3:-}" = --legacy_non_ab ]; then\n printf \'/system/real-file 1\\n<directory:/lost+found> 2\\n\' > "$2"\nelse\n printf \'/system/real-file 1\\n/lost+found 2\\n<free-space> 3\\n\' > "$2"\nfi\n');generator.chmod(0o755)
+        generator.write_text('#!/bin/sh\nif [ "${3:-}" = --legacy_non_ab ]; then\n printf \'/system/real-file 1\\n<inode-metadata:/lost+found> 2\\n<inode-metadata:/system/link-file> 3\\n\' > "$2"\nelse\n printf \'/system/real-file 1\\n/lost+found 2\\n/system/link-file 3\\n<free-space> 4\\n\' > "$2"\nfi\n');generator.chmod(0o755)
         readers=json.loads((scripts/'ota-map-sparse-reader-fixture.json').read_text())
         for name,spec in readers.items():
             data=spec['text'].encode();assert hashlib.sha256(data).hexdigest()==spec['sha256']
@@ -32,13 +32,13 @@ def main():
             mk.write_text('COPY_IMAGES_FOR_TARGET_FILES_ZIP := true\nBOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE := ext4\nAB_OTA_UPDATER := '+ab+'\nHOST_OUT_EXECUTABLES := '+str(base/'host/bin')+'\nto-upper = $(shell echo $(1) | tr a-z A-Z)\n'+fixed+'all:\n\t$(call copy-image-and-generate-map,'+str(image)+','+str(out)+',system)\n')
             subprocess.run(['make','-s','-f',str(mk)],check=True)
             assert (out/'system.img').read_bytes()==raw
-            expected='/system/real-file 1\n<directory:/lost+found> 2\n' if ab=='false' else original_map
+            expected='/system/real-file 1\n<inode-metadata:/lost+found> 2\n<inode-metadata:/system/link-file> 3\n' if ab=='false' else original_map
             assert (out/'system.map').read_text()==expected
             try:reader.SparseImage(str(out/'system.img'),str(out/'system.map'),'0')
             except AssertionError:
                 assert ab!='false'
             else:assert ab=='false'
-        map_path=base/'bad.map';map_path.write_text('/system/real-file 3\n')
+        map_path=base/'bad.map';map_path.write_text('/system/real-file 4\n')
         try:reader.SparseImage(str(image),str(map_path),'0')
         except AssertionError:pass
         else:raise AssertionError('Invalid allocated file range accepted')
@@ -56,17 +56,26 @@ def main():
         try:namespace['GetSparseImage']('system',str(legacy),InputZip(),False)
         except AssertionError as exc:assert 'ZIP entry' in str(exc)
         else:raise AssertionError('Missing lost+found archive regression was not caught')
-        (legacy/'IMAGES/system.map').write_text('/system/real-file 1\n<directory:/lost+found> 2\n')
+        (legacy/'IMAGES/system.map').write_text('/system/real-file 1\n<inode-metadata:/lost+found> 2\n/system/link-file 3\n')
+        try:namespace['GetSparseImage']('system',str(legacy),InputZip(),False)
+        except AssertionError as exc:assert 'ZIP entry' in str(exc)
+        else:raise AssertionError('Absent symlink archive entry was not caught')
+        (legacy/'IMAGES/system.map').write_text('/system/real-file 1\n<inode-metadata:/lost+found> 2\n<inode-metadata:/system/link-file> 3\n')
         namespace['GetSparseImage']('system',str(legacy),InputZip(),False)
         # Compile and run the actual C++ filename formatter, including A/B.
         formatter=readers['BlockMapName']['text']
         cpp=base/'formatter.cc';cpp.write_text('#include <string>\n#include <sys/stat.h>\n#include <cassert>\nstruct FilesystemInterface { struct File { std::string name; struct stat file_stat; }; };\n'+formatter+'''int main() {
           FilesystemInterface::File dir{"/lost+found", {}}; dir.file_stat.st_mode=S_IFDIR;
-          assert(BlockMapName(dir,true)=="<directory:/lost+found>");
+          assert(BlockMapName(dir,true)=="<inode-metadata:/lost+found>");
           assert(BlockMapName(dir,false)=="/lost+found");
           FilesystemInterface::File regular{"/system/real-file", {}}; regular.file_stat.st_mode=S_IFREG;
           assert(BlockMapName(regular,true)==regular.name);
           assert(BlockMapName(regular,false)==regular.name);
+          FilesystemInterface::File link{"/system/link-file", {}}; link.file_stat.st_mode=S_IFLNK;
+          assert(BlockMapName(link,true)=="<inode-metadata:/system/link-file>");
+          assert(BlockMapName(link,false)==link.name);
+          FilesystemInterface::File pseudo{"<inode-blocks>", {}};
+          assert(BlockMapName(pseudo,true)==pseudo.name);
         }\n''')
         subprocess.run(['g++','-std=c++17',str(cpp),'-o',str(base/'formatter')],check=True)
         subprocess.run([str(base/'formatter')],check=True)
@@ -106,5 +115,6 @@ def main():
     print('AB_RECIPE_UNCHANGED=PASS')
     print('PINNED_GETSPARSEIMAGE_LOST_FOUND_REGRESSION=PASS')
     print('ACTUAL_CPP_DIRECTORY_NAME_FORMATTER=PASS')
+    print('ABSENT_SYMLINK_ARCHIVE_REGRESSION=PASS')
 
 if __name__=='__main__':main()

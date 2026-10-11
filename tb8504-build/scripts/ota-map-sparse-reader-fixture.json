@@ -15,8 +15,8 @@
     "source_head": "e5aaa62172df0f321e68133fa30f42316376bfe8"
   },
   "BlockMapName": {
-    "text": "std::string BlockMapName(const FilesystemInterface::File& file,\n                         bool legacy_non_ab) {\n  if (legacy_non_ab && S_ISDIR(file.file_stat.st_mode)) {\n    return \"<directory:\" + file.name + \">\";\n  }\n  return file.name;\n}\n\n",
-    "sha256": "f819b557eab572195bf1b3883b36558c954fea0d1939c6a56f44ef966c0461ee",
+    "text": "std::string BlockMapName(const FilesystemInterface::File& file,\n                         bool legacy_non_ab) {\n  if (legacy_non_ab && !file.name.empty() && file.name.front() == '/' &&\n      !S_ISREG(file.file_stat.st_mode)) {\n    return \"<inode-metadata:\" + file.name + \">\";\n  }\n  return file.name;\n}\n\n",
+    "sha256": "3d064b5b51319836d05d5892748300975364ebd32705445fd4c44c4a23558f48",
     "source_head": "fc83053aa2a71885ba8615da9946033adf3462ce"
   }
 }

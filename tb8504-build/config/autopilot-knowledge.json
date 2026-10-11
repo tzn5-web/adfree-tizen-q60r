@@ -584,10 +584,10 @@
         "head": "fc83053aa2a71885ba8615da9946033adf3462ce",
         "legacy_map_generator_compatibility": {
           "git_diff_abbrev": 40,
-          "scope": "In explicit legacy non-A/B mode omit unallocated free-space pseudo ranges and retain allocated directories under metadata pseudo names. Preserve all allocated file extents and A/B output",
+          "scope": "In explicit legacy non-A/B mode omit unallocated free-space extents and retain nonregular inode extents (directories and symlinks) under metadata pseudo names. All regular-file names/extents and A/B behavior retained",
           "transform": "apply-legacy-map-generator-compat.py"
         },
-        "patch_sha256": "da34e4c169f851ccc7e48f9da5e1f0eef3e27ee70081322290f29bd83f7e0dab"
+        "patch_sha256": "9bebf68027f26ec026480c207cff462c77552f04068aa593f3b881b50e0d2509"
       },
       "vendor/lineage": {
         "head": "686d8669737d2207208ea21075320840b5ec8463",

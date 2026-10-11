@@ -287,3 +287,10 @@ the previous post-generation text filter. Both complete source patches
 (build/make and system/update_engine) and immutable HEADs are pinned.
 The regression test executes pinned GetSparseImage, including archive
 membership, and compiles the actual C++ directory-name formatter.
+
+Legacy map metadata naming covers all nonregular inodes, including
+directories and allocated symlinks. zip -r follows links and can omit
+broken absolute symlinks; their extents remain required filesystem data.
+Only regular files use ZIP-checked file names. Existing pseudo entries
+are preserved without inspecting their inode mode. A regression test
+checks the absent symlink through actual pinned GetSparseImage.
