@@ -246,3 +246,11 @@ slotselect, with a dedicated recovery. The guarded BoardConfig transform
 sets AB_OTA_UPDATER := false. It preserves every prior approved patch and
 source HEAD. The canonical build regenerates metadata/images and verifies
 the complete recovery OTA package; no artificial A/B partition list is added.
+
+The OTA copies the audited installed boot image using the pinned AOSP
+BOARD_COPY_BOOT_IMAGE_TO_TARGET_FILES switch. Releasetools rebuilding from
+BOOT/RAMDISK lost five device nodes present in the installed first-stage
+ramdisk. Exact OTA/local boot SHA equality remains mandatory. OTA identity
+accepts structured TB-8504X/F model aliases and matches built properties;
+actual Android16 release and SDK36 are checked independently of the pinned
+Lenovo compatibility fingerprint. Hardware runtime testing remains pending.

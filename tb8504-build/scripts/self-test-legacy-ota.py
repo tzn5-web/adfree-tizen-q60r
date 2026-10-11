@@ -7,6 +7,9 @@ before=json.loads((scripts/'ota-board-before.json').read_text())['board'].encode
 after=h['transform'](before)
 assert after==before+h['BLOCK'].encode() and h['transform'](after)==after
 assert after.count(b'AB_OTA_UPDATER := false')==1
+assert after.count(b'BOARD_COPY_BOOT_IMAGE_TO_TARGET_FILES := true')==1
+intermediate=before+h['BLOCK'].removesuffix(h['BOOT_COPY_BLOCK']).encode()
+assert h['transform'](intermediate)==after
 for bad in (before+b'# unknown\n',after+b'# unknown\n'):
     try:h['transform'](bad)
     except ValueError:pass
