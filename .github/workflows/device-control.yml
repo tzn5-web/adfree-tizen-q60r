@@ -17,7 +17,7 @@ permissions:
 jobs:
   python:
     runs-on: ubuntu-24.04
-    timeout-minutes: 6
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,6 +25,29 @@ jobs:
           python-version: '3.11'
       - name: Syntax and imports audit (stdlib only)
         run: python -m compileall -q device-control/device_control device-control/tests
+      - name: Install actual runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r device-control/requirements.txt
+      - name: Live MCP SDK import and tool discovery
+        env:
+          PYTHONPATH: device-control
+        run: |
+          python - <<'PY'
+          import asyncio
+          from mcp import Client
+          from device_control.server import mcp
+
+          async def smoke():
+              async with Client(mcp) as client:
+                  result = await client.list_tools()
+                  tools = result.tools if hasattr(result, 'tools') else result
+                  names = {tool.name for tool in tools}
+                  must = {'device_status', 'windows_shell', 'screen_capture',
+                          'start_windows_job', 'windows_job_status',
+                          'cancel_windows_job', 'android_device_status'}
+                  assert must <= names, (must - names, names)
+                  print('MCP_TOOL_DISCOVERY=PASS', len(names))
+          asyncio.run(smoke())
+          PY
       - name: PowerShell syntax audit
         shell: pwsh
         run: |
