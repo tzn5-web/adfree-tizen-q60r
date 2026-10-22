@@ -60,15 +60,14 @@ def start_job(command: str, engine: str = "powershell", timeout: int = 1800) -> 
                         "created": now, "cancel": False, "process": None}
 
     def work():
-        with _lock:
-            item = _jobs[ident]
-            if item["cancel"]:
-                item["status"] = "cancelled"
-                return
         try:
-            proc = subprocess.Popen(args, stdin=subprocess.DEVNULL,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             with _lock:
+                item = _jobs[ident]
+                if item["cancel"]:
+                    item["status"] = "cancelled"
+                    return
+                proc = subprocess.Popen(args, stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 item["process"] = proc
                 item["status"] = "running"
             def read_output():
