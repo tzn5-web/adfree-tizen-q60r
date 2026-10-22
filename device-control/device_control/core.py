@@ -8,7 +8,7 @@ import platform
 import re
 import shutil
 import subprocess
-import time
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -152,23 +152,38 @@ def write_text(location: str, content: str, overwrite: bool = False) -> dict[str
     return {"path": str(p), "bytes": len(data), "overwritten": overwrite}
 
 def run_process(args: list[str], timeout: int = 30, binary: bool = False) -> dict[str, Any] | bytes:
+    """Bounded output using auto-deleted temporary streams; kill Windows descendants on timeout."""
     if not isinstance(timeout, int) or not 1 <= timeout <= 120:
         raise ValueError("Timeout must be 1–120 seconds")
-    try:
-        result = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True,
-                                timeout=timeout, check=False)
-    except subprocess.TimeoutExpired:
-        raise TimeoutError("Command timed out after " + str(timeout) + " seconds")
-    if binary:
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr[:1000].decode(errors="replace"))
-        if len(result.stdout) > 8 * 1024 * 1024:
-            raise ValueError("Binary output too large")
-        return result.stdout
-    return {"exit_code": result.returncode,
-            "stdout": result.stdout[:MAX_OUTPUT].decode("utf-8", errors="replace"),
-            "stderr": result.stderr[:MAX_OUTPUT].decode("utf-8", errors="replace"),
-            "truncated": len(result.stdout) > MAX_OUTPUT or len(result.stderr) > MAX_OUTPUT}
+    with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+        proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if platform.system() == "Windows":
+                subprocess.run(["taskkill.exe", "/PID", str(proc.pid), "/T", "/F"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=10, check=False)
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=10)
+            raise TimeoutError("Command timed out after " + str(timeout) + " seconds")
+        out.seek(0, 2)
+        out_size = out.tell()
+        err.seek(0, 2)
+        err_size = err.tell()
+        out.seek(0)
+        err.seek(0)
+        if binary:
+            if code != 0:
+                raise RuntimeError(err.read(1000).decode(errors="replace"))
+            if out_size > 8 * 1024 * 1024:
+                raise ValueError("Binary output too large")
+            return out.read()
+        return {"exit_code": code,
+                "stdout": out.read(MAX_OUTPUT).decode("utf-8", errors="replace"),
+                "stderr": err.read(MAX_OUTPUT).decode("utf-8", errors="replace"),
+                "truncated": out_size > MAX_OUTPUT or err_size > MAX_OUTPUT}
 
 def shell_command(command: str, engine: str = "powershell", timeout: int = 30) -> dict[str, Any]:
     Policy().require("shell")
@@ -198,6 +213,7 @@ def ui_action(action: str, x: int = 0, y: int = 0, text: str = "", amount: int =
     Policy().require("ui")
     if platform.system() != "Windows":
         raise OSError("Windows interactive session required")
+    audit("ui", action)
     import pyautogui
     pyautogui.FAILSAFE = True
     if action == "click":
@@ -217,7 +233,6 @@ def ui_action(action: str, x: int = 0, y: int = 0, text: str = "", amount: int =
         pyautogui.hotkey(*parts)
     else:
         raise ValueError("Unknown UI action")
-    audit("ui", action)
     return "UI action completed: " + action
 
 def adb_prefix() -> list[str]:
