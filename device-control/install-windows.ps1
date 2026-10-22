@@ -37,6 +37,8 @@ if (Test-Path $policyPath) {
             ui = $full
             android_read = $false
             android_write = $false
+            azure_read = $full
+            azure_write = $full
         }
         roots = @('Desktop', 'Documents', 'Downloads')
         android_serial = ''
