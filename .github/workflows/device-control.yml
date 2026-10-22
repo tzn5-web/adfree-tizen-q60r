@@ -1,0 +1,38 @@
+name: Device Control offline audit
+
+on:
+  push:
+    paths:
+      - 'device-control/**'
+      - '.github/workflows/device-control.yml'
+  pull_request:
+    paths:
+      - 'device-control/**'
+      - '.github/workflows/device-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax and imports audit (stdlib only)
+        run: python -m compileall -q device-control/device_control device-control/tests
+      - name: Offline regression and policy tests
+        env:
+          PYTHONPATH: device-control
+          CDC_AZURE_BLOB_URL: ''
+        run: python -m unittest discover -s device-control/tests -v
+      - name: Scan for accidentally committed secrets/config
+        run: |
+          test ! -e device-control/policy.json
+          test ! -e device-control/.env
+          test ! -d device-control/.venv
+          grep -R 'CONTROL_PLANE_API_KEY=' device-control --exclude='*.md' && exit 1 || true
