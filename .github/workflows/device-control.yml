@@ -43,7 +43,8 @@ jobs:
                   names = {tool.name for tool in tools}
                   must = {'device_status', 'windows_shell', 'screen_capture',
                           'start_windows_job', 'windows_job_status',
-                          'cancel_windows_job', 'android_device_status'}
+                          'cancel_windows_job', 'android_device_status',
+                          'azure_create_project', 'azure_save_text', 'azure_read_text'}
                   assert must <= names, (must - names, names)
                   print('MCP_TOOL_DISCOVERY=PASS', len(names))
           asyncio.run(smoke())
