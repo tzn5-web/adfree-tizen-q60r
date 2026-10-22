@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+policy.json
+*.png
+*.jpg
+*.log
+*.zip
+tunnel-client*
