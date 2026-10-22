@@ -19,7 +19,7 @@ MAX_WRITE = 512 * 1024
 MAX_OUTPUT = 24000
 CAPABILITIES = (
     "files_read", "files_write", "shell", "screen",
-    "ui", "android_read", "android_write"
+    "ui", "android_read", "android_write", "azure_read", "azure_write"
 )
 
 class AccessDenied(PermissionError):
