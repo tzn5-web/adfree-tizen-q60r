@@ -36,3 +36,9 @@ resource audit 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-0
 }
 
 output blobEndpoint string = storage.properties.primaryEndpoints.blob
+
+resource projects 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobs
+  name: 'device-control-projects'
+  properties: { publicAccess: 'None' }
+}
