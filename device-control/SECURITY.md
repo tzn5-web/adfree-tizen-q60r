@@ -8,7 +8,8 @@ Security controls implemented:
 - file read/write paths confined to explicitly granted roots; realpath resolution blocks ../ and symlink exits.
 - no overwrite by default; upper size limits for text, shell output, binaries, and screenshots.
 - Android ADB requires explicit serial pairing; default disabled.
-- no credentials in GitHub; optional Azure Blob metadata logs using Entra ID rather than storage keys.
+- no credentials in GitHub; optional Azure Blob metadata logs and project artifacts using Entra ID rather than storage keys.
+- Azure read/write tools check the same local policy. Long-running jobs check revocation and can be cancelled remotely.
 - Python subprocess invoked with shell=False; the command itself is deliberately interpreted by PowerShell/CMD when authorized.
 - local emergency stop: set policy.enabled=false and stop tunnel-client. Revoke tunnel credential in Platform if compromised.
 
