@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from mcp.server.mcpserver import MCPServer, Image
-from device_control import core, jobs
+from device_control import core, jobs, azure_store
 
 mcp = MCPServer("ChatGPT Device Control")
 
@@ -75,6 +75,31 @@ def windows_job_status(job_id: str) -> str:
 def cancel_windows_job(job_id: str) -> str:
     """Terminate a running local shell job and its child process tree."""
     return json.dumps(jobs.cancel_job(job_id), ensure_ascii=False)
+
+@mcp.tool()
+def azure_create_project(project_id: str, description: str = "") -> str:
+    """Create Azure-only persistent project namespace; no local project storage."""
+    return json.dumps(azure_store.create_project(project_id, description), ensure_ascii=False)
+
+@mcp.tool()
+def azure_list_projects() -> str:
+    """List persistent project workspaces in Azure Blob."""
+    return json.dumps(azure_store.list_projects(), ensure_ascii=False)
+
+@mcp.tool()
+def azure_save_text(project_id: str, name: str, value: str, overwrite: bool = False) -> str:
+    """Save project text artifacts in Azure, not local disk."""
+    return json.dumps(azure_store.save_text(project_id, name, value, overwrite), ensure_ascii=False)
+
+@mcp.tool()
+def azure_read_text(project_id: str, name: str) -> str:
+    """Read one Azure project text artifact (up to 1 MiB)."""
+    return azure_store.read_text(project_id, name)
+
+@mcp.tool()
+def azure_list_artifacts(project_id: str) -> str:
+    """List saved Azure artifacts under one project namespace."""
+    return json.dumps(azure_store.list_artifacts(project_id), ensure_ascii=False)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
