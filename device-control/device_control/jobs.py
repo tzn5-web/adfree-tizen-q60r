@@ -83,17 +83,33 @@ def start_job(command: str, engine: str = "powershell", timeout: int = 1800) -> 
                 proc.stdout.close()
             reader = threading.Thread(target=read_output, daemon=True)
             reader.start()
-            try:
-                return_code = proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                _terminate(proc)
-                return_code = proc.wait(timeout=10)
+            deadline = time.monotonic() + timeout
+            revoked = False
+            while proc.poll() is None:
                 with _lock:
-                    item["error"] = "Job timed out"
+                    cancelled = item["cancel"]
+                if cancelled:
+                    _terminate(proc)
+                    break
+                try:
+                    Policy().require("shell")
+                except (AccessDenied, OSError, ValueError):
+                    revoked = True
+                    _terminate(proc)
+                    break
+                if time.monotonic() >= deadline:
+                    with _lock:
+                        item["error"] = "Job timed out"
+                    _terminate(proc)
+                    break
+                time.sleep(0.5)
+            return_code = proc.wait(timeout=10)
             reader.join(timeout=3)
             with _lock:
                 item["exit_code"] = return_code
-                item["status"] = "cancelled" if item["cancel"] else ("timeout" if item["error"] else "finished")
+                item["status"] = ("cancelled" if item["cancel"] else
+                                  "revoked" if revoked else
+                                  "timeout" if item["error"] else "finished")
         except Exception as exc:
             with _lock:
                 item["error"] = str(exc)[:1000]
