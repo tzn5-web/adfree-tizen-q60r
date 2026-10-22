@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from mcp.server.fastmcp import FastMCP, Image
-from device_control import core
+from device_control import core, jobs
 
 mcp = FastMCP("ChatGPT Device Control")
 
@@ -60,6 +60,21 @@ def android_input(kind: str, value: str = "", x: int = 0, y: int = 0) -> str:
 def android_run_shell(command: str, timeout: int = 30) -> str:
     """Run adb shell command on locally authorized paired Android device."""
     return json.dumps(core.android_shell(command, timeout), ensure_ascii=False)
+
+@mcp.tool()
+def start_windows_job(command: str, engine: str = "powershell", timeout: int = 1800) -> str:
+    """Start a long local Windows script/compile asynchronously (up to 2h). Returns job_id."""
+    return json.dumps(jobs.start_job(command, engine, timeout), ensure_ascii=False)
+
+@mcp.tool()
+def windows_job_status(job_id: str) -> str:
+    """Check progress and bounded output of a previously started local shell job."""
+    return json.dumps(jobs.job_status(job_id), ensure_ascii=False)
+
+@mcp.tool()
+def cancel_windows_job(job_id: str) -> str:
+    """Terminate a running local shell job and its child process tree."""
+    return json.dumps(jobs.cancel_job(job_id), ensure_ascii=False)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
