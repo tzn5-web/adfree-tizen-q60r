@@ -1,10 +1,10 @@
 """MCP stdio tools. Run on the user's own device via an outbound-only tunnel."""
 from __future__ import annotations
 import json
-from mcp.server.fastmcp import FastMCP, Image
+from mcp.server.mcpserver import MCPServer, Image
 from device_control import core, jobs
 
-mcp = FastMCP("ChatGPT Device Control")
+mcp = MCPServer("ChatGPT Device Control")
 
 @mcp.tool()
 def device_status() -> str:
