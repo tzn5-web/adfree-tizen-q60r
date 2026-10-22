@@ -3,7 +3,13 @@ name: Q60R build and regression
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'device-control/**'
+      - '.github/workflows/device-control.yml'
   pull_request:
+    paths-ignore:
+      - 'device-control/**'
+      - '.github/workflows/device-control.yml'
   workflow_dispatch:
 
 concurrency:

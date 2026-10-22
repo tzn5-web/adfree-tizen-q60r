@@ -1,0 +1,106 @@
+name: Device Control offline audit
+
+on:
+  push:
+    paths:
+      - 'device-control/**'
+      - '.github/workflows/device-control.yml'
+  pull_request:
+    paths:
+      - 'device-control/**'
+      - '.github/workflows/device-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Syntax and imports audit (stdlib only)
+        run: python -m compileall -q device-control/device_control device-control/tests
+      - name: Install actual runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r device-control/requirements.txt
+      - name: Live MCP SDK import and tool discovery
+        env:
+          PYTHONPATH: device-control
+        run: |
+          python - <<'PY'
+          import asyncio
+          from mcp import Client
+          from device_control.server import mcp
+
+          async def smoke():
+              async with Client(mcp) as client:
+                  result = await client.list_tools()
+                  tools = result.tools if hasattr(result, 'tools') else result
+                  names = {tool.name for tool in tools}
+                  must = {'device_status', 'windows_shell', 'screen_capture',
+                          'start_windows_job', 'windows_job_status',
+                          'cancel_windows_job', 'android_device_status',
+                          'azure_create_project', 'azure_save_text', 'azure_read_text'}
+                  assert must <= names, (must - names, names)
+                  print('MCP_TOOL_DISCOVERY=PASS', len(names))
+          asyncio.run(smoke())
+          PY
+      - name: PowerShell syntax audit
+        shell: pwsh
+        run: |
+          foreach ($path in @('device-control/install-windows.ps1', 'device-control/start-tunnel.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -ne 0) { throw "PowerShell parse failed: $path - $errors" }
+          }
+      - name: Offline regression and policy tests
+        env:
+          PYTHONPATH: device-control
+          CDC_AZURE_BLOB_URL: ''
+        run: python -m unittest discover -s device-control/tests -v
+      - name: Scan for accidentally committed secrets/config
+        run: |
+          test ! -e device-control/policy.json
+          test ! -e device-control/.env
+          test ! -d device-control/.venv
+          grep -R 'CONTROL_PLANE_API_KEY=' device-control --exclude='*.md' && exit 1 || true
+
+      - name: Assemble isolated Windows distribution
+        run: |
+          cd device-control
+          zip -r ../chatgpt-device-control-v1.zip . -x '*.pyc' -x '*__pycache__*' -x '.venv/*' -x '.env*'
+      - name: Upload validated Windows distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-device-control-v1
+          path: chatgpt-device-control-v1.zip
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    needs: python
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    permissions:
+      contents: write
+    steps:
+      - name: Download validated artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chatgpt-device-control-v1
+      - name: Publish versioned GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -s chatgpt-device-control-v1.zip
+          if gh release view device-control-v1.0.0 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing silent overwrite.'
+          else
+            gh release create device-control-v1.0.0 chatgpt-device-control-v1.zip -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ChatGPT Device Control v1.0.0" --notes "Windows/ADB MCP source installer. Requires owner-side installation, OpenAI tunnel pairing and supported ChatGPT write permissions. Does not alter Tizen TV app."
+          fi
