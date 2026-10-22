@@ -75,8 +75,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -s chatgpt-device-control-v1.zip
-          if gh release view device-control-v1.0.0 >/dev/null 2>&1; then
+          if gh release view device-control-v1.0.0 -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo 'Release already exists; refusing silent overwrite.'
           else
-            gh release create device-control-v1.0.0 chatgpt-device-control-v1.zip --target "$GITHUB_SHA" --title "ChatGPT Device Control v1.0.0" --notes "Windows/ADB MCP source installer. Requires owner-side installation, OpenAI tunnel pairing and supported ChatGPT write permissions. Does not alter Tizen TV app."
+            gh release create device-control-v1.0.0 chatgpt-device-control-v1.zip -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "ChatGPT Device Control v1.0.0" --notes "Windows/ADB MCP source installer. Requires owner-side installation, OpenAI tunnel pairing and supported ChatGPT write permissions. Does not alter Tizen TV app."
           fi
