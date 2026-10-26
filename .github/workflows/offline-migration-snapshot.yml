@@ -1,0 +1,48 @@
+name: Offline migration snapshot
+on:
+  push:
+    branches: [migration-backup-20261026]
+    paths: [.github/workflows/offline-migration-snapshot.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  issues: read
+  pull-requests: read
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Mirror full Git refs and history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/snapshot"
+          git clone --mirror "https://github.com/$GITHUB_REPOSITORY.git" "$RUNNER_TEMP/mirror.git"
+          repo="${GITHUB_REPOSITORY##*/}"
+          git --git-dir="$RUNNER_TEMP/mirror.git" bundle create "$RUNNER_TEMP/snapshot/$repo.bundle" --all
+          git init --bare "$RUNNER_TEMP/check.git" >/dev/null
+          git -C "$RUNNER_TEMP/check.git" bundle verify "$RUNNER_TEMP/snapshot/$repo.bundle"
+          git --git-dir="$RUNNER_TEMP/mirror.git" show-ref > "$RUNNER_TEMP/snapshot/$repo.refs.txt"
+          printf '%s\n' "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/snapshot/REPOSITORY.txt"
+          sha256sum "$RUNNER_TEMP/snapshot/$repo.bundle" > "$RUNNER_TEMP/snapshot/SHA256SUMS.txt"
+      - name: Export portable issue, pull request and release metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/snapshot"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/issues?state=all&per_page=100" > issues.json
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls?state=all&per_page=100" > pulls.json
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases.json
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/workflows?per_page=100" > workflows.json
+          printf '{"note":"Git bundle includes branches, tags and reachable Git history; not Git LFS payloads, issue comments, Actions secrets, or release binaries."}\n' > LIMITATIONS.json
+      - name: Upload portable offline archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-source-${{ github.event.repository.name }}-20261026
+          path: ${{ runner.temp }}/snapshot/*
+          if-no-files-found: error
+          retention-days: 7
